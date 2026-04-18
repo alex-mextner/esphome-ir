@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Remote Cheat Sheet</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    padding: 12px 16px;
+    line-height: 1.45;
+  }
+
+  h1 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e6edf3;
+    margin-bottom: 10px;
+    letter-spacing: 0.3px;
+  }
+
+  h2 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #8b949e;
+    margin: 12px 0 6px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #21262d;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  tr:nth-child(even) td {
+    background: #161b22;
+  }
+
+  td {
+    padding: 3px 6px;
+    vertical-align: top;
+  }
+
+  td:first-child {
+    width: 44%;
+    white-space: nowrap;
+  }
+
+  kbd {
+    display: inline-block;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 11px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 0px 4px;
+    color: #79c0ff;
+    line-height: 1.6;
+  }
+
+  kbd.multi {
+    color: #d2a8ff;
+  }
+
+  kbd.color-red   { color: #ff7b72; }
+  kbd.color-green { color: #3fb950; }
+  kbd.color-yellow { color: #d29922; }
+
+  .desc {
+    color: #c9d1d9;
+  }
+
+  .note {
+    color: #8b949e;
+    font-size: 11px;
+    font-style: italic;
+    margin-top: 2px;
+  }
+
+  .section {
+    margin-bottom: 4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Remote Cheat Sheet</h1>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Navigation — guide mode ON (nav keys → TV)</h2>
+<div class="section">
+<table>
+  <tr>
+    <td><kbd>▲</kbd> <kbd>▼</kbd> <kbd>◄</kbd> <kbd>►</kbd></td>
+    <td class="desc">D-pad — moves cursor on TV</td>
+  </tr>
+  <tr>
+    <td><kbd>OK</kbd></td>
+    <td class="desc">Confirm / select on TV</td>
+  </tr>
+  <tr>
+    <td><kbd>Back</kbd> <kbd>Exit</kbd></td>
+    <td class="desc">Back / close menu on TV</td>
+  </tr>
+  <tr>
+    <td><kbd>Menu</kbd></td>
+    <td class="desc">Open TV menu</td>
+  </tr>
+  <tr>
+    <td><kbd>Home</kbd></td>
+    <td class="desc">Go to TV home screen</td>
+  </tr>
+  <tr>
+    <td><kbd class="multi">Guide</kbd></td>
+    <td class="desc"><strong>Exit guide mode</strong> (nav keys return to normal)</td>
+  </tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Always Active</h2>
+<div class="section">
+<table>
+  <tr>
+    <td><kbd>Power</kbd></td>
+    <td class="desc">Toggle TV on/off</td>
+  </tr>
+  <tr>
+    <td><kbd>Input</kbd></td>
+    <td class="desc">Switch HDMI source</td>
+  </tr>
+  <tr>
+    <td><kbd>Vol+</kbd> <kbd>Vol−</kbd></td>
+    <td class="desc">TV volume ±</td>
+  </tr>
+  <tr>
+    <td><kbd>Mute</kbd></td>
+    <td class="desc">Toggle TV mute</td>
+  </tr>
+  <tr>
+    <td><kbd>Ch+</kbd> <kbd>Ch−</kbd></td>
+    <td class="desc">AC temperature ±1 °C</td>
+  </tr>
+  <tr>
+    <td><kbd class="multi">Prime</kbd></td>
+    <td class="desc">AC on/off — <em>hold</em> = toggle cool ↔ heat</td>
+  </tr>
+  <tr>
+    <td><kbd class="color-red">Red</kbd> <kbd class="color-green">Green</kbd> <kbd class="color-yellow">Yellow</kbd></td>
+    <td class="desc">Lamp color presets</td>
+  </tr>
+  <tr>
+    <td><kbd>Netflix</kbd> <kbd>YouTube</kbd></td>
+    <td class="desc">Launch app on TV</td>
+  </tr>
+  <tr>
+    <td><kbd>Disney+</kbd> <kbd>Apple TV</kbd></td>
+    <td class="desc">Launch app on TV</td>
+  </tr>
+  <tr>
+    <td><kbd>Smart</kbd></td>
+    <td class="desc">Toggle lamp (on/off)</td>
+  </tr>
+  <tr>
+    <td><kbd>Audio</kbd></td>
+    <td class="desc">Play/Pause — <em>Мини гостиная</em> speaker</td>
+  </tr>
+  <tr>
+    <td><kbd>0</kbd>–<kbd>9</kbd> <kbd>−</kbd></td>
+    <td class="desc">T9 text input / channel direct entry</td>
+  </tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Source-Aware</h2>
+<div class="section">
+<table>
+  <tr>
+    <td><kbd>Play</kbd> <kbd>⏮</kbd> <kbd>⏭</kbd></td>
+    <td class="desc">Media transport — goes to active HDMI source</td>
+  </tr>
+  <tr>
+    <td><kbd>Info</kbd></td>
+    <td class="desc">
+      HDMI 1 → Kodi<br>
+      HDMI 2 → Chromecast
+      <div class="note">Behaviour depends on current HDMI source</div>
+    </td>
+  </tr>
+</table>
+</div>
+
+</body>
+</html>
