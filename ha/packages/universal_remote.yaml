@@ -218,15 +218,20 @@ script:
                   done: true
           - conditions: "{{ source == 'chromecast' }}"
             sequence:
-              # Android TV Remote integration (androidtv_remote2) does not expose
-              # a text-input service — only keycodes (DPAD_*, BACK, HOME, etc.).
-              # No reliable way to inject a string without a third-party helper.
-              # Show what was typed so user can key it in via on-screen keyboard.
-              - action: persistent_notification.create
-                data:
-                  title: T9 text (copy into Chromecast search)
-                  message: "{{ text }}"
-                  notification_id: t9_chromecast_text
+              # Android TV Remote accepts Android KEYCODE_* one at a time.
+              # Letters → KEYCODE_A..Z; space → KEYCODE_SPACE; digits → KEYCODE_0..9.
+              - repeat:
+                  for_each: "{{ text | list }}"
+                  sequence:
+                    - action: remote.send_command
+                      target: { entity_id: remote.televizor }
+                      data:
+                        command: >-
+                          {% set c = repeat.item %}
+                          {% if c == ' ' %}KEYCODE_SPACE
+                          {%- elif c.isalpha() %}KEYCODE_{{ c | upper }}
+                          {%- else %}KEYCODE_{{ c }}
+                          {%- endif %}
       - action: input_text.set_value
         target: { entity_id: input_text.t9_buffer }
         data: { value: "" }
