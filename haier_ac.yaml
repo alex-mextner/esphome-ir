@@ -1,0 +1,19 @@
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [haier_acyrw02]
+
+sensor:
+  - platform: template
+    id: current_temperature
+    lambda: return 22.0;
+
+climate:
+  - platform: haier_acyrw02
+    name: "Кондиционер"
+    sensor_id: current_temperature
+    pin: 14 # D5
+    device_id: device_haier
+    web_server:
+      sorting_group_id: group_haier
