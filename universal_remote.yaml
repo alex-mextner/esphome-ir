@@ -71,6 +71,7 @@ event:
 
       # Long-press (hold) events
       - prime_hold
+      - disney_hold
 
       # Passback — decoded codes from the factory Samsung remote
       - samsung_ir_source
@@ -178,7 +179,14 @@ remote_receiver:
                 hold_fired = true;
               } else { return; }
               break;
-            case 0x956A: ev = "disney";       break;
+            case 0x956A:
+              // Short-press vs hold: first frame → disney, 5th repeat → disney_hold
+              if (repeat_cnt == 0) { ev = "disney"; }
+              else if (repeat_cnt == 5 && !hold_fired) {
+                ev = "disney_hold";
+                hold_fired = true;
+              } else { return; }
+              break;
             case 0x55AA: ev = "youtube";      break;
 
             default: return;
@@ -199,11 +207,25 @@ remote_receiver:
           }
         }
 
-        // Fire once per physical press (no repeat-spam), except prime_hold
-        // which is intentionally a mid-hold event.
+        // Fire on every press. For most buttons we suppress NEC auto-repeat
+        // (so one press = one event). Volume, channel ± and arrow keys are
+        // explicitly repeatable so holding the button steps through values.
+        // "*_hold" events are mid-hold by design.
         if (ev) {
-          const bool is_prime_hold = (strcmp(ev, "prime_hold") == 0);
-          if (repeat_cnt == 0 || is_prime_hold) {
+          const size_t L = strlen(ev);
+          const bool is_hold = (L > 5 && strcmp(ev + L - 5, "_hold") == 0);
+          const bool is_repeatable = (
+            strcmp(ev, "volume_up") == 0   ||
+            strcmp(ev, "volume_down") == 0 ||
+            strcmp(ev, "channel_up") == 0  ||
+            strcmp(ev, "channel_down") == 0||
+            strcmp(ev, "up") == 0    ||
+            strcmp(ev, "down") == 0  ||
+            strcmp(ev, "left") == 0  ||
+            strcmp(ev, "right") == 0 ||
+            strcmp(ev, "back") == 0
+          );
+          if (repeat_cnt == 0 || is_hold || is_repeatable) {
             id(universal_remote_event).trigger(ev);
           }
         }

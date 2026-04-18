@@ -218,21 +218,15 @@ script:
                   done: true
           - conditions: "{{ source == 'chromecast' }}"
             sequence:
-              # Android TV Remote: send_command with the KEYCODE_* sequence.
-              # The Python library doesn't support SEND_STRING as a single op,
-              # so we loop the characters and use letter-by-letter KEYCODE.
-              # Best-effort: characters not in the keymap are skipped.
-              - repeat:
-                  for_each: "{{ text | list }}"
-                  sequence:
-                    - action: remote.send_command
-                      target: { entity_id: remote.televizor }
-                      data:
-                        command: >-
-                          KEYCODE_{{ (repeat.item | upper)
-                                     if repeat.item.isalpha()
-                                     else ('SPACE' if repeat.item == ' '
-                                     else repeat.item) }}
+              # Android TV Remote integration (androidtv_remote2) does not expose
+              # a text-input service — only keycodes (DPAD_*, BACK, HOME, etc.).
+              # No reliable way to inject a string without a third-party helper.
+              # Show what was typed so user can key it in via on-screen keyboard.
+              - action: persistent_notification.create
+                data:
+                  title: T9 text (copy into Chromecast search)
+                  message: "{{ text }}"
+                  notification_id: t9_chromecast_text
       - action: input_text.set_value
         target: { entity_id: input_text.t9_buffer }
         data: { value: "" }
@@ -302,7 +296,7 @@ script:
       - choose:
           # Same digit within 1.5s: cycle in place (replace last char).
           - conditions: >-
-              {{ prev_digit == digit
+              {{ (prev_digit | int(-1)) == (digit | int(-2))
                  and (now_ms | int) - (prev_ts | int) < 1500
                  and chars | length > 1 }}
             sequence:
@@ -357,10 +351,10 @@ automation:
       button: "{{ trigger.to_state.attributes.event_type }}"
     action:
       - choose:
-          # ---- Prime: no-op here, handled by dedicated automation below ----
-          - conditions: "{{ button in ['prime', 'prime_hold'] }}"
+          # ---- Prime / Disney: handled by dedicated automations below ----
+          - conditions: "{{ button in ['prime', 'prime_hold', 'disney', 'disney_hold'] }}"
             sequence:
-              - stop: "handled by prime automation"
+              - stop: "handled by dedicated automation"
 
           # ---- Power and source ----
           - conditions: "{{ button == 'power' }}"
@@ -484,11 +478,7 @@ automation:
             sequence:
               - action: script.app_launch_on_chromecast
                 data: { activity: com.ionitech.airscreen }
-          - conditions: "{{ button == 'disney' }}"
-            sequence:
-              - action: script.source_to_pc
-              - delay: "00:00:02"
-              - action: script.kodi_play_next_episode
+          # disney handled by universal_remote_disney automation (see below)
 
           # ---- Smart / audio / info / guide ----
           - conditions: "{{ button == 'smart' }}"
@@ -571,6 +561,43 @@ automation:
                   - stop: "hold detected, prime short suppressed"
               - action: climate.toggle
                 target: { entity_id: climate.konditsioner_haier_konditsioner }
+
+  # ===== Disney: open Kodi (short) / play next episode (hold) =====
+  - alias: Universal Remote Disney
+    id: universal_remote_disney
+    mode: parallel
+    max: 5
+    trigger:
+      - platform: state
+        entity_id: event.universal_remote_universal_remote
+    condition:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state is not none and
+             trigger.to_state.attributes.event_type in ['disney', 'disney_hold'] }}
+    action:
+      - variables:
+          ev: "{{ trigger.to_state.attributes.event_type }}"
+      - choose:
+          - conditions: "{{ ev == 'disney_hold' }}"
+            sequence:
+              - action: script.source_to_pc
+              - delay: "00:00:02"
+              - action: script.kodi_play_next_episode
+          - conditions: "{{ ev == 'disney' }}"
+            sequence:
+              # Wait 300ms for a possible disney_hold. If it arrives we abort.
+              - wait_for_trigger:
+                  - platform: state
+                    entity_id: event.universal_remote_universal_remote
+                timeout: "00:00:00.300"
+                continue_on_timeout: true
+              - if: >-
+                  {{ wait.trigger is not none and
+                     wait.trigger.to_state.attributes.event_type == 'disney_hold' }}
+                then:
+                  - stop: "hold detected, disney short suppressed"
+              - action: script.source_to_pc
 
   # ===== Samsung IR passback: track source selection =====
   - alias: Samsung IR passback source sync
