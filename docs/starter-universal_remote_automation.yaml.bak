@@ -1,0 +1,229 @@
+# Single HA automation: routes every button press from the universal remote.
+# Import: Settings → Automations → ⋮ → Edit in YAML → paste.
+#
+# Mode "queued" важен: если быстро жмёшь несколько кнопок подряд (Ch+ Ch+ Ch+),
+# HA не дропнет их, а поставит в очередь и выполнит по порядку.
+#
+# Плейсхолдеры помечены <TODO:> — замени на свои entity_id.
+# Кнопки без действия просто закомментированы в default-ветке —
+# дополняй по мере роста системы.
+
+alias: Universal Remote Dispatcher
+description: Роутер нажатий с универсального пульта
+mode: queued
+max: 10
+
+triggers:
+  - trigger: state
+    entity_id: event.universal_remote_universal_remote
+
+variables:
+  button: "{{ trigger.to_state.attributes.event_type }}"
+
+actions:
+  - choose:
+
+      # ========== TV: питание / источник ==========
+
+      - conditions: "{{ button == 'power' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_power }
+
+      - conditions: "{{ button == 'input' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_source }  # <TODO: имя кнопки source/input в samsung_tv.yaml>
+
+      # ========== Громкость ==========
+
+      - conditions: "{{ button == 'volume_up' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_volume_up }
+
+      - conditions: "{{ button == 'volume_down' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_volume_down }
+
+      - conditions: "{{ button == 'mute' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_mute }
+
+      # ========== Каналы ==========
+
+      - conditions: "{{ button == 'channel_up' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_channel_up }
+
+      - conditions: "{{ button == 'channel_down' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_channel_down }
+
+      # ========== Цифры (пробрасываем в TV для ввода канала) ==========
+
+      - conditions: "{{ button in ['0','1','2','3','4','5','6','7','8','9'] }}"
+        sequence:
+          - action: button.press
+            target:
+              entity_id: "button.samsung_tv_{{ button }}"  # <TODO: убедись что в samsung_tv.yaml есть button.samsung_tv_0 ... _9>
+
+      - conditions: "{{ button == 'dash' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_dash }  # <TODO: или удалить ветку если не нужно>
+
+      # ========== Навигация (по умолчанию TV, можешь переключить на медиаплеер) ==========
+
+      - conditions: "{{ button == 'up' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_up }
+
+      - conditions: "{{ button == 'down' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_down }
+
+      - conditions: "{{ button == 'left' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_left }
+
+      - conditions: "{{ button == 'right' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_right }
+
+      - conditions: "{{ button == 'ok' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_ok }
+
+      - conditions: "{{ button == 'back' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_back }
+
+      - conditions: "{{ button == 'exit' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_exit }
+
+      # ========== Меню / система TV ==========
+
+      - conditions: "{{ button == 'home' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_home }
+
+      - conditions: "{{ button == 'menu' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_menu }
+
+      - conditions: "{{ button == 'guide' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_guide }
+
+      - conditions: "{{ button == 'info' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_info }
+
+      - conditions: "{{ button == 'audio' }}"
+        sequence:
+          - action: button.press
+            target: { entity_id: button.samsung_tv_audio }
+
+      - conditions: "{{ button == 'smart' }}"
+        sequence:
+          # Пока триггерит home на TV — замени на что угодно, например открытие Stremio
+          - action: button.press
+            target: { entity_id: button.samsung_tv_home }
+
+      # ========== Медиа (prev/play/next) ==========
+      # Когда появится mini PC со Stremio — замени entity_id ниже.
+
+      - conditions: "{{ button == 'play' }}"
+        sequence:
+          - action: media_player.media_play_pause
+            target: { entity_id: media_player.stremio }  # <TODO>
+
+      - conditions: "{{ button == 'prev' }}"
+        sequence:
+          - action: media_player.media_previous_track
+            target: { entity_id: media_player.stremio }  # <TODO>
+
+      - conditions: "{{ button == 'next' }}"
+        sequence:
+          - action: media_player.media_next_track
+            target: { entity_id: media_player.stremio }  # <TODO>
+
+      # ========== Цветные (свободные слоты под свои сценарии) ==========
+
+      - conditions: "{{ button == 'red' }}"
+        sequence:
+          - action: system_log.write
+            data:
+              message: "Universal Remote: RED pressed (action not configured)"
+              level: info
+
+      - conditions: "{{ button == 'green' }}"
+        sequence:
+          - action: system_log.write
+            data:
+              message: "Universal Remote: GREEN pressed (action not configured)"
+              level: info
+
+      - conditions: "{{ button == 'yellow' }}"
+        sequence:
+          - action: system_log.write
+            data:
+              message: "Universal Remote: YELLOW pressed (action not configured)"
+              level: info
+
+      # ========== Приложения / источники ==========
+      # Обычно это комбо: переключить HDMI-источник TV + (опционально) запустить app.
+      # Пока просто ставлю TODO — когда определишься с источниками и плеером, заполни.
+
+      - conditions: "{{ button == 'apple_tv' }}"
+        sequence:
+          - action: system_log.write
+            data: { message: "Universal Remote: apple_tv pressed", level: info }
+          # Пример что можно сюда вписать:
+          # - action: media_player.select_source
+          #   target: { entity_id: media_player.samsung_tv }
+          #   data: { source: "HDMI 2" }
+
+      - conditions: "{{ button == 'netflix' }}"
+        sequence:
+          - action: system_log.write
+            data: { message: "Universal Remote: netflix pressed", level: info }
+
+      - conditions: "{{ button == 'prime' }}"
+        sequence:
+          - action: system_log.write
+            data: { message: "Universal Remote: prime pressed", level: info }
+
+      - conditions: "{{ button == 'disney' }}"
+        sequence:
+          - action: system_log.write
+            data: { message: "Universal Remote: disney pressed", level: info }
+
+      - conditions: "{{ button == 'youtube' }}"
+        sequence:
+          - action: system_log.write
+            data: { message: "Universal Remote: youtube pressed", level: info }
+
+    # Для незамапленных / неизвестных кнопок — просто лог
+    default:
+      - action: system_log.write
+        data:
+          message: "Universal Remote: unhandled button '{{ button }}'"
+          level: warning
