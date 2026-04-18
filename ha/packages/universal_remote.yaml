@@ -341,8 +341,8 @@ automation:
   # ===== Main dispatcher =====
   - alias: Universal Remote Dispatcher
     id: universal_remote_dispatcher
-    mode: queued
-    max: 10
+    mode: parallel
+    max: 100
     trigger:
       - platform: state
         entity_id: event.universal_remote_universal_remote

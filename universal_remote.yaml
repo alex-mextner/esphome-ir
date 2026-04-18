@@ -83,30 +83,58 @@ event:
       - samsung_ir_power
 
 remote_receiver:
+  # on_raw catches NEC repeat frames that on_nec can't decode (ESPHome
+  # issue #6603). When we see the repeat shape (~9ms mark, ~2.25ms space,
+  # ~560us mark), we synthesize a repeat event using the last decoded name.
+  on_raw:
+    - lambda: |-
+        if (millis() < id(ir_self_ignore_until)) return;
+        if (x.size() != 3) return;
+        if (!(x[0] > 8000 && x[0] < 10000)) return;
+        if (!(x[1] < -2000 && x[1] > -2500)) return;
+        if (!(x[2] > 400 && x[2] < 700)) return;
+
+        id(ir_last_ms) = millis();
+        id(ir_repeat_cnt) = id(ir_repeat_cnt) + 1;
+
+        const std::string &ev = id(ir_last_ev);
+        if (ev.empty()) return;
+
+        // Hold detection at 5 repeats (~540ms of hold) for prime / disney.
+        const uint8_t rc = id(ir_repeat_cnt);
+        if (rc == 5 && !id(ir_hold_fired)) {
+          if (ev == "prime") {
+            id(ir_hold_fired) = true;
+            id(universal_remote_event).trigger("prime_hold");
+            return;
+          }
+          if (ev == "disney") {
+            id(ir_hold_fired) = true;
+            id(universal_remote_event).trigger("disney_hold");
+            return;
+          }
+        }
+
+        // Repeatable keys — fire on every NEC repeat frame.
+        const bool is_repeatable = (
+          ev == "volume_up"   || ev == "volume_down" ||
+          ev == "channel_up"  || ev == "channel_down"||
+          ev == "up"   || ev == "down" ||
+          ev == "left" || ev == "right" ||
+          ev == "back"
+        );
+        if (is_repeatable) {
+          id(universal_remote_event).trigger(ev.c_str());
+        }
+
   on_nec:
     - lambda: |-
-        // Suppress self-ignited frames: after our own Samsung transmits,
-        // the receiver briefly sees the blaster's own signal.
         if (millis() < id(ir_self_ignore_until)) { return; }
 
-        static uint32_t last_cmd   = 0;
-        static uint32_t last_addr  = 0;
-        static uint32_t last_ms    = 0;
-        static uint8_t  repeat_cnt = 0;
-        static bool     hold_fired = false;
-
-        const uint32_t now = millis();
-        const bool same = (x.command == last_cmd && x.address == last_addr
-                           && (now - last_ms) < 200);
-        if (same) {
-          repeat_cnt++;
-        } else {
-          repeat_cnt = 0;
-          hold_fired = false;
-        }
-        last_cmd  = x.command;
-        last_addr = x.address;
-        last_ms   = now;
+        // New initial frame — reset repeat state.
+        id(ir_last_ms)     = millis();
+        id(ir_repeat_cnt)  = 0;
+        id(ir_hold_fired)  = false;
 
         const char* ev = nullptr;
 
@@ -171,22 +199,8 @@ remote_receiver:
 
             // Приложения
             case 0xD22D: ev = "netflix";      break;
-            case 0x44BB:
-              // Short-press vs hold: first frame → prime, 5th repeat → prime_hold
-              if (repeat_cnt == 0) { ev = "prime"; }
-              else if (repeat_cnt == 5 && !hold_fired) {
-                ev = "prime_hold";
-                hold_fired = true;
-              } else { return; }
-              break;
-            case 0x956A:
-              // Short-press vs hold: first frame → disney, 5th repeat → disney_hold
-              if (repeat_cnt == 0) { ev = "disney"; }
-              else if (repeat_cnt == 5 && !hold_fired) {
-                ev = "disney_hold";
-                hold_fired = true;
-              } else { return; }
-              break;
+            case 0x44BB: ev = "prime";        break;
+            case 0x956A: ev = "disney";       break;
             case 0x55AA: ev = "youtube";      break;
 
             default: return;
@@ -207,25 +221,9 @@ remote_receiver:
           }
         }
 
-        // Fire on every press. For most buttons we suppress NEC auto-repeat
-        // (so one press = one event). Volume, channel ± and arrow keys are
-        // explicitly repeatable so holding the button steps through values.
-        // "*_hold" events are mid-hold by design.
         if (ev) {
-          const size_t L = strlen(ev);
-          const bool is_hold = (L > 5 && strcmp(ev + L - 5, "_hold") == 0);
-          const bool is_repeatable = (
-            strcmp(ev, "volume_up") == 0   ||
-            strcmp(ev, "volume_down") == 0 ||
-            strcmp(ev, "channel_up") == 0  ||
-            strcmp(ev, "channel_down") == 0||
-            strcmp(ev, "up") == 0    ||
-            strcmp(ev, "down") == 0  ||
-            strcmp(ev, "left") == 0  ||
-            strcmp(ev, "right") == 0 ||
-            strcmp(ev, "back") == 0
-          );
-          if (repeat_cnt == 0 || is_hold || is_repeatable) {
-            id(universal_remote_event).trigger(ev);
-          }
+          id(ir_last_ev) = std::string(ev);
+          id(universal_remote_event).trigger(ev);
+        } else {
+          id(ir_last_ev) = std::string();
         }
