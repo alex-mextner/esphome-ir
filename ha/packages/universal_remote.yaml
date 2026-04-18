@@ -1,0 +1,622 @@
+# Universal Remote — complete feature package.
+# Everything related to the living-room IR remote lives here.
+
+input_text:
+  t9_buffer:
+    name: T9 Buffer
+    max: 100
+    initial: ""
+    icon: mdi:keyboard
+  t9_state:
+    # Format: "<digit>:<index>:<timestamp_ms>". Empty = no multitap in flight.
+    name: T9 State
+    max: 40
+    initial: ""
+    icon: mdi:clock-outline
+
+input_boolean:
+  nav_to_tv:
+    name: Nav routes to TV (guide mode)
+    icon: mdi:remote-tv
+
+rest_command:
+  guide_window_open:
+    url: !secret win_guide_open_url
+    method: POST
+    headers:
+      X-Guide-Token: !secret win_guide_secret
+    timeout: 3
+  guide_window_close:
+    url: !secret win_guide_close_url
+    method: POST
+    headers:
+      X-Guide-Token: !secret win_guide_secret
+    timeout: 3
+
+script:
+  # Source-aware nav: sends direction to Kodi or Samsung depending on mode.
+  remote_nav:
+    alias: Remote nav dispatcher
+    mode: parallel
+    max: 20
+    fields:
+      direction:
+        description: up | down | left | right | ok | back | menu
+        example: up
+    sequence:
+      - variables:
+          to_tv: "{{ is_state('input_boolean.nav_to_tv', 'on') }}"
+          source: "{{ states('input_text.tv_source') }}"
+          kodi_map:
+            up: Input.Up
+            down: Input.Down
+            left: Input.Left
+            right: Input.Right
+            ok: Input.Select
+            back: Input.Back
+            menu: Input.ContextMenu
+          samsung_map:
+            up: button.samsung_tv_up
+            down: button.samsung_tv_down
+            left: button.samsung_tv_left
+            right: button.samsung_tv_right
+            ok: button.samsung_tv_ok
+            back: button.samsung_tv_back
+            menu: button.samsung_tv_menu
+      - choose:
+          - conditions: "{{ to_tv or source == 'chromecast' }}"
+            sequence:
+              - action: button.press
+                target:
+                  entity_id: "{{ samsung_map[direction] }}"
+          - conditions: "{{ source == 'pc' }}"
+            sequence:
+              - action: kodi.call_method
+                data:
+                  entity_id: media_player.192_168_0_11
+                  method: "{{ kodi_map[direction] }}"
+
+  # Media transport: play/prev/next for the active source.
+  remote_media:
+    alias: Remote media transport
+    mode: parallel
+    max: 10
+    fields:
+      action:
+        description: play_pause | previous | next
+    sequence:
+      - variables:
+          source: "{{ states('input_text.tv_source') }}"
+          kodi_action_map:
+            play_pause: media_play_pause
+            previous: media_previous_track
+            next: media_next_track
+          samsung_action_map:
+            play_pause: button.samsung_tv_ok
+            previous: button.samsung_tv_left
+            next: button.samsung_tv_right
+      - choose:
+          - conditions: "{{ source == 'chromecast' }}"
+            sequence:
+              - action: button.press
+                target:
+                  entity_id: "{{ samsung_action_map[action] }}"
+          - conditions: "{{ source == 'pc' and action == 'play_pause' }}"
+            sequence:
+              - action: media_player.media_play_pause
+                target: { entity_id: media_player.192_168_0_11 }
+          - conditions: "{{ source == 'pc' and action == 'previous' }}"
+            sequence:
+              - action: media_player.media_previous_track
+                target: { entity_id: media_player.192_168_0_11 }
+          - conditions: "{{ source == 'pc' and action == 'next' }}"
+            sequence:
+              - action: media_player.media_next_track
+                target: { entity_id: media_player.192_168_0_11 }
+
+  # Kodi: resume next episode of the last in-progress show.
+  kodi_play_next_episode:
+    alias: Kodi play next episode
+    mode: single
+    sequence:
+      - action: kodi.call_method
+        data:
+          entity_id: media_player.192_168_0_11
+          method: VideoLibrary.GetInProgressTVShows
+          properties: ["title", "lastplayed"]
+          sort:
+            order: descending
+            method: lastplayed
+        response_variable: shows_resp
+      - choose:
+          - conditions: "{{ (shows_resp.tvshows | default([])) | length > 0 }}"
+            sequence:
+              - variables:
+                  show_id: "{{ shows_resp.tvshows[0].tvshowid }}"
+              - action: kodi.call_method
+                data:
+                  entity_id: media_player.192_168_0_11
+                  method: VideoLibrary.GetEpisodes
+                  tvshowid: "{{ show_id }}"
+                  properties: ["title", "playcount", "resume", "file", "season", "episode"]
+                  sort:
+                    order: ascending
+                    method: episode
+                response_variable: eps_resp
+              - variables:
+                  # First episode with playcount == 0 or a non-zero resume position.
+                  next_ep: >-
+                    {% set eps = eps_resp.episodes | default([]) %}
+                    {% set cand = eps | selectattr('playcount', 'equalto', 0) | list %}
+                    {{ cand[0] if cand | length > 0 else (eps[-1] if eps | length > 0 else none) }}
+              - choose:
+                  - conditions: "{{ next_ep != none }}"
+                    sequence:
+                      - action: kodi.call_method
+                        data:
+                          entity_id: media_player.192_168_0_11
+                          method: Player.Open
+                          item: { episodeid: "{{ next_ep.episodeid }}" }
+        default:
+          # No in-progress shows: fallback to resume, then open Kodi home.
+          - action: media_player.media_play
+            target: { entity_id: media_player.192_168_0_11 }
+
+  # Switch HDMI source only if not already there.
+  source_to_chromecast:
+    alias: Source → chromecast (idempotent)
+    mode: single
+    sequence:
+      - if: "{{ states('input_text.tv_source') == 'chromecast' }}"
+        then:
+          - stop: "already on chromecast"
+      - action: script.vkliuchi_serialy
+
+  source_to_pc:
+    alias: Source → pc (idempotent)
+    mode: single
+    sequence:
+      - if: "{{ states('input_text.tv_source') == 'pc' }}"
+        then:
+          - stop: "already on pc"
+      - action: script.vkliuchi_hromkast
+
+  # App launcher for Chromecast/Google TV.
+  app_launch_on_chromecast:
+    alias: Launch app on Chromecast
+    mode: single
+    fields:
+      activity:
+        description: Android package or deep-link URL
+    sequence:
+      - action: script.source_to_chromecast
+      - delay: "00:00:02"
+      - action: remote.turn_on
+        target: { entity_id: remote.televizor }
+        data:
+          activity: "{{ activity }}"
+
+  # T9 commit: flush buffer to active target, then send Select.
+  t9_commit:
+    alias: T9 commit buffer
+    mode: single
+    sequence:
+      - variables:
+          text: "{{ states('input_text.t9_buffer') }}"
+          source: "{{ states('input_text.tv_source') }}"
+      - if: "{{ text | length == 0 }}"
+        then:
+          - stop: "empty buffer, nothing to send"
+      - choose:
+          - conditions: "{{ source == 'pc' }}"
+            sequence:
+              - action: kodi.call_method
+                data:
+                  entity_id: media_player.192_168_0_11
+                  method: Input.SendText
+                  text: "{{ text }}"
+                  done: true
+          - conditions: "{{ source == 'chromecast' }}"
+            sequence:
+              # Android TV Remote: send_command with the KEYCODE_* sequence.
+              # The Python library doesn't support SEND_STRING as a single op,
+              # so we loop the characters and use letter-by-letter KEYCODE.
+              # Best-effort: characters not in the keymap are skipped.
+              - repeat:
+                  for_each: "{{ text | list }}"
+                  sequence:
+                    - action: remote.send_command
+                      target: { entity_id: remote.televizor }
+                      data:
+                        command: >-
+                          KEYCODE_{{ (repeat.item | upper)
+                                     if repeat.item.isalpha()
+                                     else ('SPACE' if repeat.item == ' '
+                                     else repeat.item) }}
+      - action: input_text.set_value
+        target: { entity_id: input_text.t9_buffer }
+        data: { value: "" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.t9_state }
+        data: { value: "" }
+
+  # Guide toggle: flips nav_to_tv AND toggles the browser window.
+  guide_toggle:
+    alias: Guide toggle
+    mode: single
+    sequence:
+      - action: input_boolean.toggle
+        target: { entity_id: input_boolean.nav_to_tv }
+      - choose:
+          - conditions: "{{ is_state('input_boolean.nav_to_tv', 'on') }}"
+            sequence:
+              - action: rest_command.guide_window_open
+        default:
+          - action: rest_command.guide_window_close
+
+  # T9 single-digit press with commit-delay.
+  t9_input:
+    alias: T9 digit press
+    mode: restart
+    fields:
+      digit:
+        description: "0-9"
+    sequence:
+      # Recover from uninitialized state (HAOS "unknown")
+      - if: >-
+          {{ states('input_text.t9_buffer') in ['unknown', 'unavailable'] }}
+        then:
+          - action: input_text.set_value
+            target: { entity_id: input_text.t9_buffer }
+            data: { value: "" }
+      - if: >-
+          {{ states('input_text.t9_state') in ['unknown', 'unavailable'] }}
+        then:
+          - action: input_text.set_value
+            target: { entity_id: input_text.t9_state }
+            data: { value: "" }
+      - variables:
+          multitap:
+            '0': ' '
+            '1': '1'
+            '2': 'abc'
+            '3': 'def'
+            '4': 'ghi'
+            '5': 'jkl'
+            '6': 'mno'
+            '7': 'pqrs'
+            '8': 'tuv'
+            '9': 'wxyz'
+          chars: "{{ multitap[digit] }}"
+          now_ms: "{{ (now().timestamp() * 1000) | int }}"
+          buffer: "{{ states('input_text.t9_buffer') }}"
+          state_raw: "{{ states('input_text.t9_state') }}"
+          has_prev: "{{ ':' in state_raw }}"
+          prev_digit: "{{ state_raw.split(':')[0] if ':' in state_raw else '' }}"
+          prev_idx: >-
+            {{ (state_raw.split(':')[1] | int(0))
+               if ':' in state_raw else 0 }}
+          prev_ts: >-
+            {{ (state_raw.split(':')[2] | int(0))
+               if ':' in state_raw else 0 }}
+      - choose:
+          # Same digit within 1.5s: cycle in place (replace last char).
+          - conditions: >-
+              {{ prev_digit == digit
+                 and (now_ms | int) - (prev_ts | int) < 1500
+                 and chars | length > 1 }}
+            sequence:
+              - variables:
+                  idx: "{{ ((prev_idx | int) + 1) % (chars | length) }}"
+              - action: input_text.set_value
+                target: { entity_id: input_text.t9_buffer }
+                data:
+                  value: "{{ buffer[:-1] ~ chars[idx | int] }}"
+              - action: input_text.set_value
+                target: { entity_id: input_text.t9_state }
+                data: { value: "{{ digit }}:{{ idx }}:{{ now_ms }}" }
+        # Different digit or timeout — commit prev letter (already in buffer),
+        # append first char of the new digit.
+        default:
+          - action: input_text.set_value
+            target: { entity_id: input_text.t9_buffer }
+            data: { value: "{{ buffer ~ chars[0] }}" }
+          - action: input_text.set_value
+            target: { entity_id: input_text.t9_state }
+            data: { value: "{{ digit }}:0:{{ now_ms }}" }
+
+  t9_backspace:
+    alias: T9 backspace
+    mode: single
+    sequence:
+      - variables:
+          buffer: "{{ states('input_text.t9_buffer') }}"
+      - action: input_text.set_value
+        target: { entity_id: input_text.t9_buffer }
+        data: { value: "{{ buffer[:-1] if buffer else '' }}" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.t9_state }
+        data: { value: "" }
+
+automation:
+  # ===== Main dispatcher =====
+  - alias: Universal Remote Dispatcher
+    id: universal_remote_dispatcher
+    mode: queued
+    max: 10
+    trigger:
+      - platform: state
+        entity_id: event.universal_remote_universal_remote
+    condition:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state is not none
+             and trigger.to_state.attributes.event_type is defined
+             and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+    variables:
+      button: "{{ trigger.to_state.attributes.event_type }}"
+    action:
+      - choose:
+          # ---- Prime: no-op here, handled by dedicated automation below ----
+          - conditions: "{{ button in ['prime', 'prime_hold'] }}"
+            sequence:
+              - stop: "handled by prime automation"
+
+          # ---- Power and source ----
+          - conditions: "{{ button == 'power' }}"
+            sequence:
+              - action: button.press
+                target: { entity_id: button.samsung_tv_power }
+
+          - conditions: "{{ button == 'input' }}"
+            sequence:
+              - choose:
+                  - conditions: "{{ states('input_text.tv_source') == 'pc' }}"
+                    sequence:
+                      - action: script.source_to_chromecast
+                default:
+                  - action: script.source_to_pc
+
+          # ---- Volume / mute ----
+          - conditions: "{{ button == 'volume_up' }}"
+            sequence:
+              - action: button.press
+                target: { entity_id: button.samsung_tv_vol }
+          - conditions: "{{ button == 'volume_down' }}"
+            sequence:
+              - action: button.press
+                target: { entity_id: button.samsung_tv_vol_2 }
+          - conditions: "{{ button == 'mute' }}"
+            sequence:
+              - action: button.press
+                target: { entity_id: button.samsung_tv_mute }
+
+          # ---- Haier AC via ch± ----
+          - conditions: "{{ button == 'channel_up' }}"
+            sequence:
+              - variables:
+                  target_temp: >-
+                    {{ [state_attr('climate.konditsioner_haier_konditsioner',
+                                   'temperature') | int(22) + 1, 30] | min }}
+              - action: climate.set_temperature
+                target: { entity_id: climate.konditsioner_haier_konditsioner }
+                data: { temperature: "{{ target_temp }}" }
+          - conditions: "{{ button == 'channel_down' }}"
+            sequence:
+              - variables:
+                  target_temp: >-
+                    {{ [state_attr('climate.konditsioner_haier_konditsioner',
+                                   'temperature') | int(22) - 1, 16] | max }}
+              - action: climate.set_temperature
+                target: { entity_id: climate.konditsioner_haier_konditsioner }
+                data: { temperature: "{{ target_temp }}" }
+
+          # ---- Navigation ----
+          - conditions: "{{ button in ['up','down','left','right','ok'] }}"
+            sequence:
+              - if: >-
+                  {{ button == 'ok' and
+                     states('input_text.t9_buffer') | length > 0 }}
+                then:
+                  - action: script.t9_commit
+                else:
+                  - action: script.remote_nav
+                    data: { direction: "{{ button }}" }
+          - conditions: "{{ button == 'back' }}"
+            sequence:
+              - action: script.remote_nav
+                data: { direction: back }
+          - conditions: "{{ button == 'menu' }}"
+            sequence:
+              - action: script.remote_nav
+                data: { direction: menu }
+          - conditions: "{{ button == 'exit' }}"
+            sequence:
+              # Exit always routes to Samsung (kills TV overlays reliably).
+              - action: button.press
+                target: { entity_id: button.samsung_tv_exit }
+          - conditions: "{{ button == 'home' }}"
+            sequence:
+              - action: button.press
+                target: { entity_id: button.samsung_tv_home }
+
+          # ---- Media transport ----
+          - conditions: "{{ button == 'play' }}"
+            sequence:
+              - action: script.remote_media
+                data: { action: play_pause }
+          - conditions: "{{ button == 'prev' }}"
+            sequence:
+              - action: script.remote_media
+                data: { action: previous }
+          - conditions: "{{ button == 'next' }}"
+            sequence:
+              - action: script.remote_media
+                data: { action: next }
+
+          # ---- Colors ----
+          - conditions: "{{ button == 'red' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.liustra }
+                data: { effect: "Красный" }
+          - conditions: "{{ button == 'green' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.liustra }
+                data: { effect: "Зеленый" }
+          - conditions: "{{ button == 'yellow' }}"
+            sequence:
+              - action: light.turn_on
+                target: { entity_id: light.liustra }
+                data: { effect: "Желтый" }
+
+          # ---- App launchers ----
+          - conditions: "{{ button == 'netflix' }}"
+            sequence:
+              - action: script.app_launch_on_chromecast
+                data: { activity: com.netflix.ninja }
+          - conditions: "{{ button == 'youtube' }}"
+            sequence:
+              - action: script.app_launch_on_chromecast
+                data: { activity: com.google.android.youtube.tv }
+          - conditions: "{{ button == 'apple_tv' }}"
+            sequence:
+              - action: script.app_launch_on_chromecast
+                data: { activity: com.ionitech.airscreen }
+          - conditions: "{{ button == 'disney' }}"
+            sequence:
+              - action: script.source_to_pc
+              - delay: "00:00:02"
+              - action: script.kodi_play_next_episode
+
+          # ---- Smart / audio / info / guide ----
+          - conditions: "{{ button == 'smart' }}"
+            sequence:
+              - action: light.toggle
+                target: { entity_id: light.liustra }
+          - conditions: "{{ button == 'audio' }}"
+            sequence:
+              - action: media_player.media_play_pause
+                target:
+                  entity_id: media_player.yandex_station_m00zrw3008rajg
+          - conditions: "{{ button == 'info' }}"
+            sequence:
+              - if: "{{ states('input_text.tv_source') == 'pc' }}"
+                then:
+                  - action: kodi.call_method
+                    data:
+                      entity_id: media_player.192_168_0_11
+                      method: Input.Info
+                else:
+                  - action: button.press
+                    target: { entity_id: button.samsung_tv_info }
+          - conditions: "{{ button == 'guide' }}"
+            sequence:
+              - action: script.guide_toggle
+
+          # ---- T9 digits ----
+          - conditions: "{{ button in ['0','1','2','3','4','5','6','7','8','9'] }}"
+            sequence:
+              - action: script.t9_input
+                data: { digit: "{{ button }}" }
+          - conditions: "{{ button == 'dash' }}"
+            sequence:
+              - action: script.t9_backspace
+        default:
+          - action: system_log.write
+            data:
+              message: "Universal Remote: unhandled '{{ button }}'"
+              level: warning
+
+  # ===== Prime: toggle AC (short) / cool↔heat (hold) =====
+  - alias: Universal Remote Prime AC
+    id: universal_remote_prime
+    mode: parallel
+    max: 5
+    trigger:
+      - platform: state
+        entity_id: event.universal_remote_universal_remote
+    condition:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state is not none and
+             trigger.to_state.attributes.event_type in ['prime', 'prime_hold'] }}
+    action:
+      - variables:
+          ev: "{{ trigger.to_state.attributes.event_type }}"
+      - choose:
+          - conditions: "{{ ev == 'prime_hold' }}"
+            sequence:
+              - variables:
+                  current_mode: >-
+                    {{ states('climate.konditsioner_haier_konditsioner') }}
+                  new_mode: >-
+                    {{ 'heat' if current_mode == 'cool' else 'cool' }}
+              - action: climate.set_hvac_mode
+                target: { entity_id: climate.konditsioner_haier_konditsioner }
+                data: { hvac_mode: "{{ new_mode }}" }
+          - conditions: "{{ ev == 'prime' }}"
+            sequence:
+              # Wait 300ms for a possible prime_hold. If it arrives we abort.
+              - wait_for_trigger:
+                  - platform: state
+                    entity_id: event.universal_remote_universal_remote
+                timeout: "00:00:00.300"
+                continue_on_timeout: true
+              - if: >-
+                  {{ wait.trigger is not none and
+                     wait.trigger.to_state.attributes.event_type == 'prime_hold' }}
+                then:
+                  - stop: "hold detected, prime short suppressed"
+              - action: climate.toggle
+                target: { entity_id: climate.konditsioner_haier_konditsioner }
+
+  # ===== Samsung IR passback: track source selection =====
+  - alias: Samsung IR passback source sync
+    id: samsung_ir_passback_source_sync
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: event.universal_remote_universal_remote
+    condition:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state is not none
+             and trigger.to_state.attributes.event_type == 'samsung_ir_source' }}
+    action:
+      # Wait for a direction (left/right) within 5s
+      - wait_for_trigger:
+          - platform: state
+            entity_id: event.universal_remote_universal_remote
+        timeout: "00:00:05"
+        continue_on_timeout: true
+      - variables:
+          dir_ev: >-
+            {{ wait.trigger.to_state.attributes.event_type if wait.trigger else '' }}
+      - if: "{{ dir_ev not in ['samsung_ir_left', 'samsung_ir_right'] }}"
+        then:
+          - stop: "no direction within 5s"
+      # Wait for OK (user confirmation) within 5s
+      - wait_for_trigger:
+          - platform: state
+            entity_id: event.universal_remote_universal_remote
+        timeout: "00:00:05"
+        continue_on_timeout: true
+      - variables:
+          confirm_ev: >-
+            {{ wait.trigger.to_state.attributes.event_type if wait.trigger else '' }}
+      - if: "{{ confirm_ev != 'samsung_ir_ok' }}"
+        then:
+          - stop: "no OK confirm"
+      - action: input_text.set_value
+        target: { entity_id: input_text.tv_source }
+        data:
+          value: >-
+            {{ 'chromecast' if dir_ev == 'samsung_ir_left' else 'pc' }}
+      - action: system_log.write
+        data:
+          message: >-
+            Samsung IR passback: tv_source synced to
+            {{ states('input_text.tv_source') }}
+          level: info
