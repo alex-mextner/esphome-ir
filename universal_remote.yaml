@@ -1,0 +1,209 @@
+# universal_remote.yaml
+# Универсальный пульт-стример.
+# Все 42 кнопки декодируются через NEC (не нужен Pronto fallback).
+#
+# Адреса:
+#   0xBF00 — основной (TV mode)
+#   0xBA00 — Apple TV (отдельный device mode в профиле)
+#
+# В HA: event.universal_remote, event_type для каждой кнопки.
+
+event:
+  - platform: template
+    id: universal_remote_event
+    name: "Universal Remote"
+    device_id: device_universal
+    device_class: button
+    web_server:
+      sorting_group_id: group_universal
+      sorting_weight: 1
+    event_types:
+      # Питание / ввод
+      - power
+      - input
+      # Цифры
+      - "0"
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - dash          # -/—
+      # Громкость / каналы
+      - volume_up
+      - volume_down
+      - mute
+      - channel_up
+      - channel_down
+      # Навигация
+      - up
+      - down
+      - left
+      - right
+      - ok
+      - back
+      - exit
+      # Меню / система
+      - home
+      - menu
+      - smart
+      - guide
+      - info
+      - audio
+      # Медиа
+      - prev
+      - play
+      - next
+      # Цветные
+      - red
+      - green
+      - yellow
+      # Приложения
+      - apple_tv
+      - netflix
+      - prime
+      - disney
+      - youtube
+
+      # Long-press (hold) events
+      - prime_hold
+
+      # Passback — decoded codes from the factory Samsung remote
+      - samsung_ir_source
+      - samsung_ir_left
+      - samsung_ir_right
+      - samsung_ir_ok
+      - samsung_ir_back
+      - samsung_ir_exit
+      - samsung_ir_power
+
+remote_receiver:
+  on_nec:
+    - lambda: |-
+        // Suppress self-ignited frames: after our own Samsung transmits,
+        // the receiver briefly sees the blaster's own signal.
+        if (millis() < id(ir_self_ignore_until)) { return; }
+
+        static uint32_t last_cmd   = 0;
+        static uint32_t last_addr  = 0;
+        static uint32_t last_ms    = 0;
+        static uint8_t  repeat_cnt = 0;
+        static bool     hold_fired = false;
+
+        const uint32_t now = millis();
+        const bool same = (x.command == last_cmd && x.address == last_addr
+                           && (now - last_ms) < 200);
+        if (same) {
+          repeat_cnt++;
+        } else {
+          repeat_cnt = 0;
+          hold_fired = false;
+        }
+        last_cmd  = x.command;
+        last_addr = x.address;
+        last_ms   = now;
+
+        const char* ev = nullptr;
+
+        // ===== Apple TV (отдельный адрес) =====
+        if (x.address == 0xBA00) {
+          if (x.command == 0xDC23) ev = "apple_tv";
+        }
+
+        // ===== Основной TV mode =====
+        else if (x.address == 0xBF00) {
+          switch (x.command) {
+            // Питание / ввод
+            case 0xF20D: ev = "power";        break;
+            case 0xED12: ev = "input";        break;
+
+            // Цифры
+            case 0xFF00: ev = "0"; break;
+            case 0xFE01: ev = "1"; break;
+            case 0xFD02: ev = "2"; break;
+            case 0xFC03: ev = "3"; break;
+            case 0xFB04: ev = "4"; break;
+            case 0xFA05: ev = "5"; break;
+            case 0xF906: ev = "6"; break;
+            case 0xF807: ev = "7"; break;
+            case 0xF708: ev = "8"; break;
+            case 0xF609: ev = "9"; break;
+            case 0x9E61: ev = "dash";         break;
+
+            // Громкость / каналы
+            case 0xBB44: ev = "volume_up";    break;
+            case 0xBC43: ev = "volume_down";  break;
+            case 0xF10E: ev = "mute";         break;
+            case 0xB54A: ev = "channel_up";   break;
+            case 0xB44B: ev = "channel_down"; break;
+
+            // Навигация
+            case 0xE916: ev = "up";           break;
+            case 0xE817: ev = "down";         break;
+            case 0xE619: ev = "left";         break;
+            case 0xE718: ev = "right";        break;
+            case 0xEA15: ev = "ok";           break;
+            case 0xB748: ev = "back";         break;
+            case 0xA35C: ev = "exit";         break;
+
+            // Меню / система
+            case 0xDF20: ev = "home";         break;
+            case 0xEB14: ev = "menu";         break;
+            case 0xE41B: ev = "smart";        break;
+            case 0xC53A: ev = "guide";        break;
+            case 0xF30C: ev = "info";         break;
+            case 0x9966: ev = "audio";        break;
+
+            // Медиа
+            case 0xA857: ev = "prev";         break;
+            case 0x7689: ev = "play";         break;
+            case 0xA956: ev = "next";         break;
+
+            // Цветные
+            case 0x4DB2: ev = "red";          break;
+            case 0xCE31: ev = "green";        break;
+            case 0x12ED: ev = "yellow";       break;
+
+            // Приложения
+            case 0xD22D: ev = "netflix";      break;
+            case 0x44BB:
+              // Short-press vs hold: first frame → prime, 5th repeat → prime_hold
+              if (repeat_cnt == 0) { ev = "prime"; }
+              else if (repeat_cnt == 5 && !hold_fired) {
+                ev = "prime_hold";
+                hold_fired = true;
+              } else { return; }
+              break;
+            case 0x956A: ev = "disney";       break;
+            case 0x55AA: ev = "youtube";      break;
+
+            default: return;
+          }
+        }
+
+        // ===== Passback: decode factory Samsung remote =====
+        else if (x.address == 0xE0E0) {
+          switch (x.command) {
+            case 0x807F: ev = "samsung_ir_source"; break;
+            case 0xA659: ev = "samsung_ir_left";   break;
+            case 0x46B9: ev = "samsung_ir_right";  break;
+            case 0x16E9: ev = "samsung_ir_ok";     break;
+            case 0x1AE5: ev = "samsung_ir_back";   break;
+            case 0xB44B: ev = "samsung_ir_exit";   break;
+            case 0xF20D: ev = "samsung_ir_power";  break;
+            default: return;
+          }
+        }
+
+        // Fire once per physical press (no repeat-spam), except prime_hold
+        // which is intentionally a mid-hold event.
+        if (ev) {
+          const bool is_prime_hold = (strcmp(ev, "prime_hold") == 0);
+          if (repeat_cnt == 0 || is_prime_hold) {
+            id(universal_remote_event).trigger(ev);
+          }
+        }
