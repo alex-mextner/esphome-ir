@@ -80,4 +80,5 @@ remote_receiver:
     mode:
       input: true
       pullup: true
-  dump: [nec] #all
+  dump: [nec]
+  tolerance: 30%

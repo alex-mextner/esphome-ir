@@ -13,11 +13,23 @@ input_text:
     max: 40
     initial: ""
     icon: mdi:clock-outline
+  audio_last_press_ms:
+    # Epoch ms of the last 'audio' button press — used for double-tap detection.
+    name: Audio last press (ms)
+    max: 16
+    initial: "0"
+    icon: mdi:gesture-double-tap
 
 input_boolean:
   nav_to_tv:
     name: Nav routes to TV (guide mode)
     icon: mdi:remote-tv
+  audio_mode:
+    # Yandex speaker control mode. Activated by double-tap on 'audio' button.
+    # One-shot: the next button press runs its mapped action and deactivates.
+    # 5s of inactivity also deactivates (safety fallback).
+    name: Audio mode (Yandex speaker)
+    icon: mdi:speaker
 
 rest_command:
   guide_window_open:
@@ -337,6 +349,132 @@ script:
         target: { entity_id: input_text.t9_state }
         data: { value: "" }
 
+  # ========== Audio mode (Yandex speaker control) ==========
+
+  audio_mode_beep_on:
+    alias: Audio mode — activation beep
+    mode: single
+    sequence:
+      - action: yandex_station.send_command
+        target: { entity_id: media_player.yandex_station_m00zrw3008rajg }
+        data:
+          command: sendText
+          text: '<speaker audio="alice-sounds-things-switcher-1.opus">'
+
+  audio_mode_beep_off:
+    alias: Audio mode — deactivation beep
+    mode: single
+    sequence:
+      - action: yandex_station.send_command
+        target: { entity_id: media_player.yandex_station_m00zrw3008rajg }
+        data:
+          command: sendText
+          text: '<speaker audio="alice-sounds-things-sonar-1.opus">'
+
+  audio_mode_activate:
+    alias: Audio mode — activate
+    mode: single
+    sequence:
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.audio_mode }
+      - action: script.audio_mode_beep_on
+
+  audio_mode_deactivate:
+    alias: Audio mode — deactivate
+    mode: single
+    sequence:
+      - if: "{{ is_state('input_boolean.audio_mode', 'off') }}"
+        then:
+          - stop: already off
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.audio_mode }
+      - action: script.audio_mode_beep_off
+
+  # Handler for the 'audio' button itself. Detects double-tap, toggles mode,
+  # and falls back to single-press play/pause on the speaker otherwise.
+  audio_mode_handle_press:
+    alias: Audio button handler
+    mode: single
+    sequence:
+      - if: "{{ is_state('input_boolean.audio_mode', 'on') }}"
+        then:
+          - action: script.audio_mode_deactivate
+          - stop: dismissed via audio press
+      - variables:
+          now_ms: "{{ (now().timestamp() * 1000) | int }}"
+          last_ms: "{{ states('input_text.audio_last_press_ms') | int(0) }}"
+          dt: "{{ now_ms - last_ms }}"
+      - action: input_text.set_value
+        target: { entity_id: input_text.audio_last_press_ms }
+        data: { value: "{{ now_ms }}" }
+      - if: "{{ 0 < dt < 500 }}"
+        then:
+          - action: script.audio_mode_activate
+          - stop: activated via double tap
+      - action: media_player.media_play_pause
+        target: { entity_id: media_player.yandex_station_m00zrw3008rajg }
+
+  # Route a button to a Yandex action. Called from the dispatcher only when
+  # audio_mode is on. Always deactivates afterwards (one-shot behaviour).
+  audio_mode_dispatch:
+    alias: Audio mode — dispatch action
+    mode: parallel
+    max: 5
+    fields:
+      button:
+        description: Button name (e.g. 'left', 'volume_up', 'info')
+    sequence:
+      - variables:
+          ys: media_player.yandex_station_m00zrw3008rajg
+      - choose:
+          - conditions: "{{ button in ['left','prev'] }}"
+            sequence:
+              - action: media_player.media_previous_track
+                target: { entity_id: "{{ ys }}" }
+          - conditions: "{{ button in ['right','next'] }}"
+            sequence:
+              - action: media_player.media_next_track
+                target: { entity_id: "{{ ys }}" }
+          - conditions: "{{ button in ['play','mute','ok','0'] }}"
+            sequence:
+              - action: media_player.media_play_pause
+                target: { entity_id: "{{ ys }}" }
+          - conditions: "{{ button == 'volume_up' }}"
+            sequence:
+              - action: media_player.volume_up
+                target: { entity_id: "{{ ys }}" }
+          - conditions: "{{ button == 'volume_down' }}"
+            sequence:
+              - action: media_player.volume_down
+                target: { entity_id: "{{ ys }}" }
+          - conditions: "{{ button in ['1','2','3','4','5','6','7','8','9'] }}"
+            sequence:
+              - action: media_player.volume_set
+                target: { entity_id: "{{ ys }}" }
+                data:
+                  volume_level: "{{ (button | int) / 10 }}"
+          - conditions: "{{ button == 'info' }}"
+            sequence:
+              - action: yandex_station.send_command
+                target: { entity_id: "{{ ys }}" }
+                data: { command: sendText, text: "Что сейчас играет?" }
+          - conditions: "{{ button == 'channel_up' }}"
+            sequence:
+              - action: button.press
+                target: { entity_id: button.gostinaia_favorite_current_song_2 }
+          - conditions: "{{ button == 'channel_down' }}"
+            sequence:
+              - action: yandex_station.send_command
+                target: { entity_id: "{{ ys }}" }
+                data: { command: sendText, text: "Поставь дизлайк" }
+          - conditions: "{{ button == 'apple_tv' }}"
+            sequence:
+              - action: yandex_station.send_command
+                target: { entity_id: "{{ ys }}" }
+                data: { command: sendText, text: "Переключи блютуз" }
+      # One-shot: any button press (mapped or not) exits the mode.
+      - action: script.audio_mode_deactivate
+
 automation:
   # ===== Main dispatcher =====
   - alias: Universal Remote Dispatcher
@@ -356,10 +494,25 @@ automation:
       button: "{{ trigger.to_state.attributes.event_type }}"
     action:
       - choose:
+          # ---- Audio mode: intercept ALL keys when active (except 'audio' itself,
+          # which routes to its own handler below). One-shot — dispatches + exits.
+          - conditions: >-
+              {{ is_state('input_boolean.audio_mode', 'on')
+                 and button != 'audio' }}
+            sequence:
+              - action: script.audio_mode_dispatch
+                data: { button: "{{ button }}" }
+              - stop: "handled by audio mode"
+
           # ---- Prime / Disney: handled by dedicated automations below ----
           - conditions: "{{ button in ['prime', 'prime_hold', 'disney', 'disney_hold'] }}"
             sequence:
               - stop: "handled by dedicated automation"
+
+          # ---- Samsung IR passback — handled by dedicated automation ----
+          - conditions: "{{ button.startswith('samsung_ir_') }}"
+            sequence:
+              - stop: "handled by passback automation"
 
           # ---- Power and source ----
           - conditions: "{{ button == 'power' }}"
@@ -421,6 +574,24 @@ automation:
                 else:
                   - action: script.remote_nav
                     data: { direction: "{{ button }}" }
+
+          # ---- OK hold: context menu ----
+          - conditions: "{{ button == 'ok_hold' }}"
+            sequence:
+              - choose:
+                  - conditions: "{{ states('input_text.tv_source') == 'pc' }}"
+                    sequence:
+                      - action: kodi.call_method
+                        data:
+                          entity_id: media_player.192_168_0_11
+                          method: Input.ContextMenu
+                default:
+                  # Chromecast: KEYCODE_MENU opens app-specific menu (works in
+                  # YouTube Home/video, Netflix, settings, etc.). No universal
+                  # "context menu" on Android TV.
+                  - action: remote.send_command
+                    target: { entity_id: remote.televizor }
+                    data: { command: KEYCODE_MENU }
           - conditions: "{{ button == 'back' }}"
             sequence:
               - action: script.remote_nav
@@ -492,9 +663,7 @@ automation:
                 target: { entity_id: light.liustra }
           - conditions: "{{ button == 'audio' }}"
             sequence:
-              - action: media_player.media_play_pause
-                target:
-                  entity_id: media_player.yandex_station_m00zrw3008rajg
+              - action: script.audio_mode_handle_press
           - conditions: "{{ button == 'info' }}"
             sequence:
               - if: "{{ states('input_text.tv_source') == 'pc' }}"
@@ -603,6 +772,20 @@ automation:
                 then:
                   - stop: "hold detected, disney short suppressed"
               - action: script.source_to_pc
+
+  # ===== Audio mode safety timeout — 5s after activation, if no action =====
+  - alias: Audio mode inactivity timeout
+    id: audio_mode_timeout
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_boolean.audio_mode
+        to: "on"
+    action:
+      - delay: "00:00:05"
+      - if: "{{ is_state('input_boolean.audio_mode', 'on') }}"
+        then:
+          - action: script.audio_mode_deactivate
 
   # ===== Samsung IR passback: track source selection =====
   - alias: Samsung IR passback source sync

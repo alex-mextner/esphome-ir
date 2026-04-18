@@ -72,6 +72,7 @@ event:
       # Long-press (hold) events
       - prime_hold
       - disney_hold
+      - ok_hold
 
       # Passback — decoded codes from the factory Samsung remote
       - samsung_ir_source
@@ -89,10 +90,10 @@ remote_receiver:
   on_raw:
     - lambda: |-
         if (millis() < id(ir_self_ignore_until)) return;
-        if (x.size() != 3) return;
-        if (!(x[0] > 8000 && x[0] < 10000)) return;
-        if (!(x[1] < -2000 && x[1] > -2500)) return;
-        if (!(x[2] > 400 && x[2] < 700)) return;
+        if (x.size() < 3 || x.size() > 5) return;
+        if (!(x[0] > 7500 && x[0] < 10500)) return;
+        if (!(x[1] < -1900 && x[1] > -2700)) return;
+        if (!(x[2] > 300 && x[2] < 800)) return;
 
         id(ir_last_ms) = millis();
         id(ir_repeat_cnt) = id(ir_repeat_cnt) + 1;
@@ -100,7 +101,7 @@ remote_receiver:
         const std::string &ev = id(ir_last_ev);
         if (ev.empty()) return;
 
-        // Hold detection at 5 repeats (~540ms of hold) for prime / disney.
+        // Hold detection at 5 repeats (~540ms of hold) for prime / disney / ok.
         const uint8_t rc = id(ir_repeat_cnt);
         if (rc == 5 && !id(ir_hold_fired)) {
           if (ev == "prime") {
@@ -111,6 +112,11 @@ remote_receiver:
           if (ev == "disney") {
             id(ir_hold_fired) = true;
             id(universal_remote_event).trigger("disney_hold");
+            return;
+          }
+          if (ev == "ok") {
+            id(ir_hold_fired) = true;
+            id(universal_remote_event).trigger("ok_hold");
             return;
           }
         }
