@@ -83,6 +83,64 @@ event:
       - samsung_ir_exit
       - samsung_ir_power
 
+      # T9 — computed by ESP. Add = fresh character, Cycle = replace last.
+      # Format: t9_<mode>_<digit>_<char>. Keeping <digit> preserves audio-mode
+      # digit shortcuts after raw digit events stop firing.
+      - t9_add_0_space
+      - t9_add_1_1
+      - t9_add_2_a
+      - t9_add_2_b
+      - t9_add_2_c
+      - t9_add_3_d
+      - t9_add_3_e
+      - t9_add_3_f
+      - t9_add_4_g
+      - t9_add_4_h
+      - t9_add_4_i
+      - t9_add_5_j
+      - t9_add_5_k
+      - t9_add_5_l
+      - t9_add_6_m
+      - t9_add_6_n
+      - t9_add_6_o
+      - t9_add_7_p
+      - t9_add_7_q
+      - t9_add_7_r
+      - t9_add_7_s
+      - t9_add_8_t
+      - t9_add_8_u
+      - t9_add_8_v
+      - t9_add_9_w
+      - t9_add_9_x
+      - t9_add_9_y
+      - t9_add_9_z
+      - t9_cycle_2_a
+      - t9_cycle_2_b
+      - t9_cycle_2_c
+      - t9_cycle_3_d
+      - t9_cycle_3_e
+      - t9_cycle_3_f
+      - t9_cycle_4_g
+      - t9_cycle_4_h
+      - t9_cycle_4_i
+      - t9_cycle_5_j
+      - t9_cycle_5_k
+      - t9_cycle_5_l
+      - t9_cycle_6_m
+      - t9_cycle_6_n
+      - t9_cycle_6_o
+      - t9_cycle_7_p
+      - t9_cycle_7_q
+      - t9_cycle_7_r
+      - t9_cycle_7_s
+      - t9_cycle_8_t
+      - t9_cycle_8_u
+      - t9_cycle_8_v
+      - t9_cycle_9_w
+      - t9_cycle_9_x
+      - t9_cycle_9_y
+      - t9_cycle_9_z
+
 remote_receiver:
   # NEC decoder only matches the INITIAL frame (9ms+4.5ms header). The
   # short-repeat frames NEC sends every ~108ms during hold have a
@@ -146,6 +204,18 @@ remote_receiver:
 
         const char* ev = nullptr;
 
+        // T9 state: static = BSS, zero heap cost per press.
+        static uint32_t t9_last_ms   = 0;
+        static uint8_t  t9_last_dgt  = 255;  // 255 = "none"
+        static uint8_t  t9_cyc_idx   = 0;
+        const uint32_t T9_WINDOW_MS  = 1500;
+
+        auto t9_reset = [&]() {
+          t9_last_ms  = 0;
+          t9_last_dgt = 255;
+          t9_cyc_idx  = 0;
+        };
+
         // ===== Apple TV (отдельный адрес) =====
         if (x.address == 0xBA00) {
           if (x.command == 0xDC23) ev = "apple_tv";
@@ -159,16 +229,61 @@ remote_receiver:
             case 0xED12: ev = "input";        break;
 
             // Цифры
-            case 0xFF00: ev = "0"; break;
-            case 0xFE01: ev = "1"; break;
-            case 0xFD02: ev = "2"; break;
-            case 0xFC03: ev = "3"; break;
-            case 0xFB04: ev = "4"; break;
-            case 0xFA05: ev = "5"; break;
-            case 0xF906: ev = "6"; break;
-            case 0xF807: ev = "7"; break;
-            case 0xF708: ev = "8"; break;
-            case 0xF609: ev = "9"; break;
+            // Digits: dispatch via T9 decision helper. Fires a semantic
+            // t9_add_<digit>_<char> / t9_cycle_<digit>_<char> event and
+            // returns. Digits are not hold/repeatable, so clear ir_last_ev:
+            // on_raw will ignore following NEC short-repeat frames without
+            // allocating a global std::string on every press.
+            case 0xFF00: case 0xFE01: case 0xFD02: case 0xFC03: case 0xFB04:
+            case 0xFA05: case 0xF906: case 0xF807: case 0xF708: case 0xF609: {
+              const uint8_t digit = x.command & 0x0F;
+
+              const char* chrs = "";
+              uint8_t chrs_len = 1;
+              switch (digit) {
+                case 0: chrs = " ";    break;
+                case 1: chrs = "1";    break;
+                case 2: chrs = "abc";  chrs_len = 3; break;
+                case 3: chrs = "def";  chrs_len = 3; break;
+                case 4: chrs = "ghi";  chrs_len = 3; break;
+                case 5: chrs = "jkl";  chrs_len = 3; break;
+                case 6: chrs = "mno";  chrs_len = 3; break;
+                case 7: chrs = "pqrs"; chrs_len = 4; break;
+                case 8: chrs = "tuv";  chrs_len = 3; break;
+                case 9: chrs = "wxyz"; chrs_len = 4; break;
+                default: return;
+              }
+
+              const uint32_t now_ms = millis();
+              const bool same_key   = (digit == t9_last_dgt);
+              const bool in_window  = (now_ms - t9_last_ms) < T9_WINDOW_MS;
+              const bool can_cycle  = (chrs_len > 1);
+              const bool do_cycle   = same_key && in_window && can_cycle;
+
+              uint8_t idx;
+              if (do_cycle) {
+                idx = (t9_cyc_idx + 1) % chrs_len;
+              } else {
+                idx = 0;
+              }
+              char ch = chrs[idx];
+
+              char evbuf[20];
+              const char* action = do_cycle ? "t9_cycle" : "t9_add";
+              if (ch == ' ') {
+                snprintf(evbuf, sizeof(evbuf), "%s_%u_space", action, (unsigned) digit);
+              } else {
+                snprintf(evbuf, sizeof(evbuf), "%s_%u_%c", action, (unsigned) digit, ch);
+              }
+
+              t9_last_dgt = digit;
+              t9_last_ms  = now_ms;
+              t9_cyc_idx  = idx;
+
+              id(ir_last_ev).clear();
+              id(universal_remote_event).trigger(evbuf);
+              return;
+            }
             case 0x9E61: ev = "dash";         break;
 
             // Громкость / каналы
@@ -237,5 +352,8 @@ remote_receiver:
           // state mid-hold.
           return;
         }
+        // Any recognized non-digit exits T9/cycle context. Digit paths
+        // return before this block.
+        t9_reset();
         id(ir_last_ev) = std::string(ev);
         id(universal_remote_event).trigger(ev);
