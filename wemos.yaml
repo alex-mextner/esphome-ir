@@ -23,6 +23,8 @@ logger:
 ota:
   platform: esphome
 api:
+  # Disable batching so event triggers reach HA with minimum latency.
+  batch_delay: 0ms
 
 web_server:
   port: 80
@@ -38,14 +40,15 @@ web_server:
       name: "Universal Remote"
 
 globals:
+  # Self-echo suppression window for Samsung IR transmits.
   - id: ir_self_ignore_until
     type: uint32_t
     restore_value: no
     initial_value: '0'
-  # State used by on_nec + on_raw to detect NEC repeat frames (button-hold).
-  # ESPHome's NEC decoder doesn't parse standard NEC repeat shape
-  # (9000us mark + 2250us space + 560us mark) — issue #6603. We catch it via
-  # on_raw and synthesize repeat events from the last decoded command.
+  # NEC short-repeat tracking state (used by on_raw in universal_remote.yaml).
+  # ESPHome's NEC decoder doesn't parse short-repeat frame shape (9ms + 2.25ms
+  # + 560us) — it only matches the initial full frame. So on_raw reconstructs
+  # repeats by matching pulse bursts that arrive shortly after a decoded NEC.
   - id: ir_last_ev
     type: std::string
     restore_value: no
@@ -62,14 +65,18 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  - id: ir_initial_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 packages:
   samsung: !include samsung_tv.yaml
   haier: !include haier_ac.yaml
   universal: !include universal_remote.yaml
 
-
 remote_transmitter:
+  id: tx
   pin: GPIO14
   carrier_duty_percent: 50%
 

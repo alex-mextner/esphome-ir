@@ -84,44 +84,39 @@ event:
       - samsung_ir_power
 
 remote_receiver:
-  # on_raw catches NEC repeat frames that on_nec can't decode (ESPHome
-  # issue #6603). When we see the repeat shape (~9ms mark, ~2.25ms space,
-  # ~560us mark), we synthesize a repeat event using the last decoded name.
+  # NEC decoder only matches the INITIAL frame (9ms+4.5ms header). The
+  # short-repeat frames NEC sends every ~108ms during hold have a
+  # different header (9ms+2.25ms) and are IGNORED by the decoder — but
+  # they DO fire on_raw. So on_nec handles taps, on_raw handles holds.
   on_raw:
     - lambda: |-
         if (millis() < id(ir_self_ignore_until)) return;
-        if (x.size() < 3 || x.size() > 5) return;
-        if (!(x[0] > 7500 && x[0] < 10500)) return;
-        if (!(x[1] < -1900 && x[1] > -2700)) return;
-        if (!(x[2] > 300 && x[2] < 800)) return;
+        // Skip initial full-frame dumps (~67 pulses). Short-repeats merged
+        // under main-loop-stall can reach up to ~32 pulses.
+        if (x.size() > 32) return;
+        if (id(ir_last_ev).empty()) return;
 
         id(ir_last_ms) = millis();
         id(ir_repeat_cnt) = id(ir_repeat_cnt) + 1;
 
         const std::string &ev = id(ir_last_ev);
-        if (ev.empty()) return;
-
-        // Hold detection at 5 repeats (~540ms of hold) for prime / disney / ok.
         const uint8_t rc = id(ir_repeat_cnt);
-        if (rc == 5 && !id(ir_hold_fired)) {
-          if (ev == "prime") {
+
+        // Hold detection at 2 repeats (~216ms) for prime/disney/ok.
+        const bool is_hold_capable = (
+          ev == "prime" || ev == "disney" || ev == "ok"
+        );
+        if (is_hold_capable) {
+          if (rc == 2 && !id(ir_hold_fired)) {
             id(ir_hold_fired) = true;
-            id(universal_remote_event).trigger("prime_hold");
-            return;
+            if      (ev == "prime")  id(universal_remote_event).trigger("prime_hold");
+            else if (ev == "disney") id(universal_remote_event).trigger("disney_hold");
+            else if (ev == "ok")     id(universal_remote_event).trigger("ok_hold");
           }
-          if (ev == "disney") {
-            id(ir_hold_fired) = true;
-            id(universal_remote_event).trigger("disney_hold");
-            return;
-          }
-          if (ev == "ok") {
-            id(ir_hold_fired) = true;
-            id(universal_remote_event).trigger("ok_hold");
-            return;
-          }
+          return;
         }
 
-        // Repeatable keys — fire on every NEC repeat frame.
+        // Repeatable keys re-fire on every short-repeat frame — native ~9Hz.
         const bool is_repeatable = (
           ev == "volume_up"   || ev == "volume_down" ||
           ev == "channel_up"  || ev == "channel_down"||
@@ -129,18 +124,25 @@ remote_receiver:
           ev == "left" || ev == "right" ||
           ev == "back"
         );
-        if (is_repeatable) {
+        // Distinguish tap vs hold by TIME since initial press, not count.
+        // NEC remotes send ~1 short-repeat right after every tap (even
+        // very short ones), so counting alone fires a phantom repeat on
+        // every tap. But a real hold keeps emitting repeats past 150ms.
+        // Threshold 150ms = after first 1-2 repeats, guaranteed a hold.
+        const bool held_long_enough = (millis() - id(ir_initial_ms)) > 150;
+        if (is_repeatable && held_long_enough) {
           id(universal_remote_event).trigger(ev.c_str());
         }
-
   on_nec:
     - lambda: |-
         if (millis() < id(ir_self_ignore_until)) { return; }
 
-        // New initial frame — reset repeat state.
-        id(ir_last_ms)     = millis();
-        id(ir_repeat_cnt)  = 0;
-        id(ir_hold_fired)  = false;
+        // Fresh initial press — reset repeat state; on_raw will increment
+        // for each subsequent short-repeat frame.
+        id(ir_repeat_cnt) = 0;
+        id(ir_hold_fired) = false;
+        id(ir_last_ms) = millis();
+        id(ir_initial_ms) = millis();
 
         const char* ev = nullptr;
 
@@ -227,9 +229,13 @@ remote_receiver:
           }
         }
 
-        if (ev) {
-          id(ir_last_ev) = std::string(ev);
-          id(universal_remote_event).trigger(ev);
-        } else {
-          id(ir_last_ev) = std::string();
+        if (!ev) {
+          // Unknown address/command — don't clear ir_last_ev (a valid
+          // hold's short-repeats still need to reference the last-known
+          // button). Only overwrite ir_last_ev when we DO recognise a
+          // new button. This also prevents ambient IR noise from wiping
+          // state mid-hold.
+          return;
         }
+        id(ir_last_ev) = std::string(ev);
+        id(universal_remote_event).trigger(ev);

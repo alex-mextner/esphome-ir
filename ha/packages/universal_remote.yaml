@@ -30,6 +30,11 @@ input_boolean:
     # 5s of inactivity also deactivates (safety fallback).
     name: Audio mode (Yandex speaker)
     icon: mdi:speaker
+  audio_was_playing:
+    # Snapshots whether the Yandex speaker was playing at activation time,
+    # so deactivation can resume playback (the activation beep pauses it).
+    name: Audio mode — was playing at activation
+    icon: mdi:play-pause
 
 rest_command:
   guide_window_open:
@@ -46,7 +51,11 @@ rest_command:
     timeout: 3
 
 script:
-  # Source-aware nav: sends direction to Kodi or Samsung depending on mode.
+  # Source-aware nav. Routing:
+  #   nav_to_tv: on (guide mode) → Samsung TV IR (control its menu)
+  #   source == chromecast → Android TV native keycode via remote.televizor
+  #     (direct TCP to AndroidTV — FAST, no IR round-trip via HDMI-CEC)
+  #   source == pc → Kodi JSON-RPC
   remote_nav:
     alias: Remote nav dispatcher
     mode: parallel
@@ -75,12 +84,27 @@ script:
             ok: button.samsung_tv_ok
             back: button.samsung_tv_back
             menu: button.samsung_tv_menu
+          atv_map:
+            up: KEYCODE_DPAD_UP
+            down: KEYCODE_DPAD_DOWN
+            left: KEYCODE_DPAD_LEFT
+            right: KEYCODE_DPAD_RIGHT
+            ok: KEYCODE_DPAD_CENTER
+            back: KEYCODE_BACK
+            menu: KEYCODE_MENU
       - choose:
-          - conditions: "{{ to_tv or source == 'chromecast' }}"
+          - conditions: "{{ to_tv }}"
             sequence:
               - action: button.press
                 target:
                   entity_id: "{{ samsung_map[direction] }}"
+          - conditions: "{{ source == 'chromecast' }}"
+            sequence:
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data:
+                  command: "{{ atv_map[direction] }}"
+                  delay_secs: 0
           - conditions: "{{ source == 'pc' }}"
             sequence:
               - action: kodi.call_method
@@ -89,6 +113,10 @@ script:
                   method: "{{ kodi_map[direction] }}"
 
   # Media transport: play/prev/next for the active source.
+  # Chromecast: native Android TV media keycodes via remote.televizor —
+  # direct TCP to the device, no IR/HDMI-CEC detour. The previous
+  # implementation routed through Samsung OK/LEFT/RIGHT which isn't
+  # the same as play/pause and often silently did nothing.
   remote_media:
     alias: Remote media transport
     mode: parallel
@@ -99,20 +127,18 @@ script:
     sequence:
       - variables:
           source: "{{ states('input_text.tv_source') }}"
-          kodi_action_map:
-            play_pause: media_play_pause
-            previous: media_previous_track
-            next: media_next_track
-          samsung_action_map:
-            play_pause: button.samsung_tv_ok
-            previous: button.samsung_tv_left
-            next: button.samsung_tv_right
+          atv_media_map:
+            play_pause: KEYCODE_MEDIA_PLAY_PAUSE
+            previous: KEYCODE_MEDIA_PREVIOUS
+            next: KEYCODE_MEDIA_NEXT
       - choose:
           - conditions: "{{ source == 'chromecast' }}"
             sequence:
-              - action: button.press
-                target:
-                  entity_id: "{{ samsung_action_map[action] }}"
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data:
+                  command: "{{ atv_media_map[action] }}"
+                  delay_secs: 0
           - conditions: "{{ source == 'pc' and action == 'play_pause' }}"
             sequence:
               - action: media_player.media_play_pause
@@ -208,9 +234,10 @@ script:
         data:
           activity: "{{ activity }}"
 
-  # T9 commit: flush buffer to active target, then send Select.
+  # T9 submit: text was typed live by t9_input as the user pressed digits,
+  # so this just sends ENTER and clears the buffer-tracking state.
   t9_commit:
-    alias: T9 commit buffer
+    alias: T9 commit (submit)
     mode: single
     sequence:
       - variables:
@@ -218,38 +245,28 @@ script:
           source: "{{ states('input_text.tv_source') }}"
       - if: "{{ text | length == 0 }}"
         then:
-          - stop: "empty buffer, nothing to send"
+          - stop: "empty buffer, nothing to submit"
       - choose:
+          - conditions: "{{ source == 'chromecast' }}"
+            sequence:
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data: { command: KEYCODE_ENTER, delay_secs: 0 }
           - conditions: "{{ source == 'pc' }}"
             sequence:
+              # Send empty text with done:true to signal Kodi to submit.
               - action: kodi.call_method
                 data:
                   entity_id: media_player.192_168_0_11
                   method: Input.SendText
-                  text: "{{ text }}"
+                  text: ""
                   done: true
-          - conditions: "{{ source == 'chromecast' }}"
-            sequence:
-              # Android TV Remote accepts Android KEYCODE_* one at a time.
-              # Letters → KEYCODE_A..Z; space → KEYCODE_SPACE; digits → KEYCODE_0..9.
-              - repeat:
-                  for_each: "{{ text | list }}"
-                  sequence:
-                    - action: remote.send_command
-                      target: { entity_id: remote.televizor }
-                      data:
-                        command: >-
-                          {% set c = repeat.item %}
-                          {% if c == ' ' %}KEYCODE_SPACE
-                          {%- elif c.isalpha() %}KEYCODE_{{ c | upper }}
-                          {%- else %}KEYCODE_{{ c }}
-                          {%- endif %}
       - action: input_text.set_value
         target: { entity_id: input_text.t9_buffer }
-        data: { value: "" }
+        data: { value: "", delay_secs: 0 }
       - action: input_text.set_value
         target: { entity_id: input_text.t9_state }
-        data: { value: "" }
+        data: { value: "", delay_secs: 0 }
 
   # Guide toggle: flips nav_to_tv AND toggles the browser window.
   guide_toggle:
@@ -279,14 +296,20 @@ script:
         then:
           - action: input_text.set_value
             target: { entity_id: input_text.t9_buffer }
-            data: { value: "" }
+            data: { value: "", delay_secs: 0 }
       - if: >-
           {{ states('input_text.t9_state') in ['unknown', 'unavailable'] }}
         then:
           - action: input_text.set_value
             target: { entity_id: input_text.t9_state }
-            data: { value: "" }
+            data: { value: "", delay_secs: 0 }
       - variables:
+          # HA re-parses template output back to native types in `variables`.
+          # So `d: "{{ digit | string }}"` stores "5" which becomes int 5,
+          # and `multitap[5]` → Undefined (keys are '0'-'9' strings).
+          # Workaround: don't store derived string values — compute inline
+          # inside each condition/action template (that pipeline isn't
+          # yaml-reparsed).
           multitap:
             '0': ' '
             '1': '1'
@@ -298,43 +321,127 @@ script:
             '7': 'pqrs'
             '8': 'tuv'
             '9': 'wxyz'
-          chars: "{{ multitap[digit] }}"
           now_ms: "{{ (now().timestamp() * 1000) | int }}"
           buffer: "{{ states('input_text.t9_buffer') }}"
           state_raw: "{{ states('input_text.t9_state') }}"
-          has_prev: "{{ ':' in state_raw }}"
-          prev_digit: "{{ state_raw.split(':')[0] if ':' in state_raw else '' }}"
-          prev_idx: >-
-            {{ (state_raw.split(':')[1] | int(0))
-               if ':' in state_raw else 0 }}
-          prev_ts: >-
-            {{ (state_raw.split(':')[2] | int(0))
-               if ':' in state_raw else 0 }}
+          source: "{{ states('input_text.tv_source') }}"
       - choose:
           # Same digit within 1.5s: cycle in place (replace last char).
           - conditions: >-
-              {{ (prev_digit | int(-1)) == (digit | int(-2))
-                 and (now_ms | int) - (prev_ts | int) < 1500
-                 and chars | length > 1 }}
+              {{ ':' in state_raw
+                 and state_raw.split(':')[0] == (digit | string)
+                 and (now_ms | int) - (state_raw.split(':')[2] | int(0)) < 1500
+                 and (multitap[digit | string] | length) > 1 }}
             sequence:
               - variables:
-                  idx: "{{ ((prev_idx | int) + 1) % (chars | length) }}"
+                  prev_idx: "{{ state_raw.split(':')[1] | int(0) }}"
+                  chars_len: "{{ multitap[digit | string] | length }}"
+                  new_idx: "{{ (prev_idx + 1) % chars_len }}"
+                  new_char: "{{ multitap[digit | string][new_idx | int] }}"
               - action: input_text.set_value
                 target: { entity_id: input_text.t9_buffer }
                 data:
-                  value: "{{ buffer[:-1] ~ chars[idx | int] }}"
+                  value: "{{ buffer[:-1] ~ new_char }}"
               - action: input_text.set_value
                 target: { entity_id: input_text.t9_state }
-                data: { value: "{{ digit }}:{{ idx }}:{{ now_ms }}" }
-        # Different digit or timeout — commit prev letter (already in buffer),
+                data: { value: "{{ digit | string }}:{{ new_idx }}:{{ now_ms }}" }
+              # Live update on TV: backspace previous letter + send new one.
+              - choose:
+                  - conditions: "{{ source == 'chromecast' }}"
+                    sequence:
+                      - action: remote.send_command
+                        target: { entity_id: remote.televizor }
+                        data: { command: KEYCODE_DEL, delay_secs: 0 }
+                      - action: remote.send_command
+                        target: { entity_id: remote.televizor }
+                        data: { command: "text:{{ new_char }}" }
+                  - conditions: "{{ source == 'pc' }}"
+                    sequence:
+                      - action: kodi.call_method
+                        data:
+                          entity_id: media_player.192_168_0_11
+                          method: Input.ExecuteAction
+                          action: backspace
+                      - action: kodi.call_method
+                        data:
+                          entity_id: media_player.192_168_0_11
+                          method: Input.SendText
+                          text: "{{ new_char }}"
+                          done: false
+        # Different digit or timeout — commit prev letter (already on TV),
         # append first char of the new digit.
         default:
+          - variables:
+              new_char: "{{ multitap[digit | string][0] }}"
           - action: input_text.set_value
             target: { entity_id: input_text.t9_buffer }
-            data: { value: "{{ buffer ~ chars[0] }}" }
+            data: { value: "{{ buffer ~ new_char }}" }
           - action: input_text.set_value
             target: { entity_id: input_text.t9_state }
-            data: { value: "{{ digit }}:0:{{ now_ms }}" }
+            data: { value: "{{ digit | string }}:0:{{ now_ms }}" }
+          # Live update on TV: append new letter.
+          - choose:
+              - conditions: "{{ source == 'chromecast' }}"
+                sequence:
+                  - action: remote.send_command
+                    target: { entity_id: remote.televizor }
+                    data: { command: "text:{{ new_char }}" }
+              - conditions: "{{ source == 'pc' }}"
+                sequence:
+                  - action: kodi.call_method
+                    data:
+                      entity_id: media_player.192_168_0_11
+                      method: Input.SendText
+                      text: "{{ new_char }}"
+                      done: false
+
+  # Universal TV search: opens search and types the query on the active
+  # source. Used from Yandex intent ("Алиса, спроси Умный дом найди в
+  # телеке ..."), and callable directly for testing.
+  tv_search:
+    alias: TV search (chromecast / kodi)
+    mode: single
+    fields:
+      query:
+        description: Search phrase
+        example: Интерстеллар
+    sequence:
+      - variables:
+          source: "{{ states('input_text.tv_source') }}"
+      - choose:
+          - conditions: "{{ source == 'chromecast' }}"
+            sequence:
+              # KEYCODE_SEARCH opens search in YouTube/Netflix/Google TV.
+              # text: uses IME commitText on the focused search field.
+              # ENTER submits.
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data: { command: KEYCODE_SEARCH, delay_secs: 0 }
+              - delay: "00:00:00.8"
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data:
+                  command: "text:{{ query }}"
+                  delay_secs: 0
+              - delay: "00:00:00.3"
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data: { command: KEYCODE_ENTER, delay_secs: 0 }
+          - conditions: "{{ source == 'pc' }}"
+            sequence:
+              # Kodi: open the Search window, type the query, submit.
+              - action: kodi.call_method
+                data:
+                  entity_id: media_player.192_168_0_11
+                  method: GUI.ActivateWindow
+                  window: search
+              - delay: "00:00:00.5"
+              - action: kodi.call_method
+                data:
+                  entity_id: media_player.192_168_0_11
+                  method: Input.SendText
+                  text: "{{ query }}"
+                  done: true
 
   t9_backspace:
     alias: T9 backspace
@@ -342,34 +449,55 @@ script:
     sequence:
       - variables:
           buffer: "{{ states('input_text.t9_buffer') }}"
+          source: "{{ states('input_text.tv_source') }}"
+      - if: "{{ buffer | length == 0 }}"
+        then:
+          - stop: "buffer empty"
       - action: input_text.set_value
         target: { entity_id: input_text.t9_buffer }
-        data: { value: "{{ buffer[:-1] if buffer else '' }}" }
+        data: { value: "{{ buffer[:-1] }}" }
       - action: input_text.set_value
         target: { entity_id: input_text.t9_state }
-        data: { value: "" }
+        data: { value: "", delay_secs: 0 }
+      # Live: also delete the last char on the TV.
+      - choose:
+          - conditions: "{{ source == 'chromecast' }}"
+            sequence:
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data: { command: KEYCODE_DEL, delay_secs: 0 }
+          - conditions: "{{ source == 'pc' }}"
+            sequence:
+              - action: kodi.call_method
+                data:
+                  entity_id: media_player.192_168_0_11
+                  method: Input.ExecuteAction
+                  action: backspace
 
   # ========== Audio mode (Yandex speaker control) ==========
 
+  # Use media_player.play_media with content_type=dialog — parses SSML
+  # (<speaker audio=...>). sendText was wrong: it treats the tag as a
+  # voice-search query, so Alice said "не могу найти".
   audio_mode_beep_on:
     alias: Audio mode — activation beep
     mode: single
     sequence:
-      - action: yandex_station.send_command
+      - action: media_player.play_media
         target: { entity_id: media_player.yandex_station_m00zrw3008rajg }
         data:
-          command: sendText
-          text: '<speaker audio="alice-sounds-things-switcher-1.opus">'
+          media_content_type: dialog
+          media_content_id: '<speaker audio="alice-sounds-game-powerup-1.opus">'
 
   audio_mode_beep_off:
     alias: Audio mode — deactivation beep
     mode: single
     sequence:
-      - action: yandex_station.send_command
+      - action: media_player.play_media
         target: { entity_id: media_player.yandex_station_m00zrw3008rajg }
         data:
-          command: sendText
-          text: '<speaker audio="alice-sounds-things-sonar-1.opus">'
+          media_content_type: dialog
+          media_content_id: '<speaker audio="alice-sounds-game-ping-1.opus">'
 
   audio_mode_activate:
     alias: Audio mode — activate
@@ -377,6 +505,15 @@ script:
     sequence:
       - action: input_boolean.turn_on
         target: { entity_id: input_boolean.audio_mode }
+      # Snapshot playback state so deactivation can resume after the beep.
+      - if: >-
+          {{ is_state('media_player.yandex_station_m00zrw3008rajg', 'playing') }}
+        then:
+          - action: input_boolean.turn_on
+            target: { entity_id: input_boolean.audio_was_playing }
+        else:
+          - action: input_boolean.turn_off
+            target: { entity_id: input_boolean.audio_was_playing }
       - action: script.audio_mode_beep_on
 
   audio_mode_deactivate:
@@ -389,12 +526,24 @@ script:
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.audio_mode }
       - action: script.audio_mode_beep_off
+      # If the speaker was playing at activation, resume after the beep
+      # finishes. 1.5s covers the beep duration on Station M.
+      - if: "{{ is_state('input_boolean.audio_was_playing', 'on') }}"
+        then:
+          - delay: "00:00:01.5"
+          - action: media_player.media_play
+            target: { entity_id: media_player.yandex_station_m00zrw3008rajg }
+          - action: input_boolean.turn_off
+            target: { entity_id: input_boolean.audio_was_playing }
 
   # Handler for the 'audio' button itself. Detects double-tap, toggles mode,
   # and falls back to single-press play/pause on the speaker otherwise.
   audio_mode_handle_press:
     alias: Audio button handler
-    mode: single
+    # `mode: restart`: second press within the 500ms debounce cancels the
+    # pending single-tap play/pause and activates audio mode instead.
+    # So a double-tap produces a clean activation, no pause side-effect.
+    mode: restart
     sequence:
       - if: "{{ is_state('input_boolean.audio_mode', 'on') }}"
         then:
@@ -407,15 +556,23 @@ script:
       - action: input_text.set_value
         target: { entity_id: input_text.audio_last_press_ms }
         data: { value: "{{ now_ms }}" }
-      - if: "{{ 0 < dt < 500 }}"
+      # Second tap within 800ms of a previous one → activate audio mode.
+      # Wider window (500→800) because user was missing it — NEC auto-
+      # repeat + human reaction put real double-taps at ~400-700ms.
+      - if: "{{ 0 < dt < 800 }}"
         then:
           - action: script.audio_mode_activate
           - stop: activated via double tap
+      # First tap — wait for a possible second tap. If one arrives,
+      # mode:restart cancels this delay. Otherwise fall through to
+      # play/pause as the single-press action.
+      - delay: "00:00:00.8"
       - action: media_player.media_play_pause
         target: { entity_id: media_player.yandex_station_m00zrw3008rajg }
 
   # Route a button to a Yandex action. Called from the dispatcher only when
-  # audio_mode is on. Always deactivates afterwards (one-shot behaviour).
+  # audio_mode is on. Volume/nav keys keep the mode active (so you can
+  # adjust multiple times); other keys are one-shot and deactivate.
   audio_mode_dispatch:
     alias: Audio mode — dispatch action
     mode: parallel
@@ -426,38 +583,75 @@ script:
     sequence:
       - variables:
           ys: media_player.yandex_station_m00zrw3008rajg
+          # HA re-coerces template output back to native type after rendering
+          # in variables. So `b = button | string` does NOT stick — digit-
+          # looking strings become ints again. For digit checks we compare
+          # via `button | int(-1)` (type-safe: works for "5", 5, "abc"→-1).
+          # For non-numeric button names `== 'name'` works fine regardless
+          # since they never coerce to int.
+          digit_num: "{{ button | int(-1) }}"
+          # Buttons that DON'T exit the mode (repeatable in-mode controls).
+          sticky: >-
+            {{ button in ['volume_up','volume_down','up','down'] }}
+          # Commands that go through Alice NL ("скажи …") need a delay
+          # before the deactivation beep — otherwise beep-off fires before
+          # Alice starts speaking.
+          via_alice: >-
+            {{ button in ['channel_down','info','apple_tv'] }}
+      # Refresh inactivity timer.
+      - action: input_text.set_value
+        target: { entity_id: input_text.audio_last_press_ms }
+        data:
+          value: "{{ (now().timestamp() * 1000) | int }}"
       - choose:
+          # prev track — use sendText; standard media_previous_track
+          # doesn't always reach Station M through AlexxIT.
           - conditions: "{{ button in ['left','prev'] }}"
             sequence:
-              - action: media_player.media_previous_track
+              - action: yandex_station.send_command
                 target: { entity_id: "{{ ys }}" }
+                data: { command: sendText, text: "Предыдущий трек", delay_secs: 0 }
           - conditions: "{{ button in ['right','next'] }}"
             sequence:
-              - action: media_player.media_next_track
+              - action: yandex_station.send_command
                 target: { entity_id: "{{ ys }}" }
-          - conditions: "{{ button in ['play','mute','ok','0'] }}"
+                data: { command: sendText, text: "Следующий трек", delay_secs: 0 }
+          # play/mute/ok/0 → toggle play/pause via media_player (handles
+          # both "playing → pause" and "paused → resume" automatically).
+          - conditions: "{{ button in ['play','mute','ok'] or digit_num == 0 }}"
             sequence:
               - action: media_player.media_play_pause
                 target: { entity_id: "{{ ys }}" }
-          - conditions: "{{ button == 'volume_up' }}"
+          # power → turn off the speaker (one-shot).
+          - conditions: "{{ button == 'power' }}"
+            sequence:
+              - action: media_player.turn_off
+                target: { entity_id: "{{ ys }}" }
+          # back → exit audio mode without firing any speaker action.
+          # The non-sticky deactivation below handles the actual exit.
+          - conditions: "{{ button == 'back' }}"
+            sequence:
+              - delay: "00:00:00.01"
+          - conditions: "{{ button in ['volume_up','up'] }}"
             sequence:
               - action: media_player.volume_up
                 target: { entity_id: "{{ ys }}" }
-          - conditions: "{{ button == 'volume_down' }}"
+          - conditions: "{{ button in ['volume_down','down'] }}"
             sequence:
               - action: media_player.volume_down
                 target: { entity_id: "{{ ys }}" }
-          - conditions: "{{ button in ['1','2','3','4','5','6','7','8','9'] }}"
+          # Digits 1-9: set volume. Use int comparison (type-safe).
+          - conditions: "{{ digit_num >= 1 and digit_num <= 9 }}"
             sequence:
               - action: media_player.volume_set
                 target: { entity_id: "{{ ys }}" }
                 data:
-                  volume_level: "{{ (button | int) / 10 }}"
+                  volume_level: "{{ digit_num / 10 }}"
           - conditions: "{{ button == 'info' }}"
             sequence:
               - action: yandex_station.send_command
                 target: { entity_id: "{{ ys }}" }
-                data: { command: sendText, text: "Что сейчас играет?" }
+                data: { command: sendText, text: "Что сейчас играет?", delay_secs: 0 }
           - conditions: "{{ button == 'channel_up' }}"
             sequence:
               - action: button.press
@@ -466,14 +660,20 @@ script:
             sequence:
               - action: yandex_station.send_command
                 target: { entity_id: "{{ ys }}" }
-                data: { command: sendText, text: "Поставь дизлайк" }
+                data: { command: sendText, text: "Поставь дизлайк", delay_secs: 0 }
           - conditions: "{{ button == 'apple_tv' }}"
             sequence:
               - action: yandex_station.send_command
                 target: { entity_id: "{{ ys }}" }
-                data: { command: sendText, text: "Переключи блютуз" }
-      # One-shot: any button press (mapped or not) exits the mode.
-      - action: script.audio_mode_deactivate
+                data: { command: sendText, text: "Переключи блютуз", delay_secs: 0 }
+      # Non-sticky buttons exit the mode. For via-Alice commands, wait
+      # for her to actually react before the deactivation beep.
+      - if: "{{ not sticky }}"
+        then:
+          - if: "{{ via_alice }}"
+            then:
+              - delay: "00:00:02.5"
+          - action: script.audio_mode_deactivate
 
 automation:
   # ===== Main dispatcher =====
@@ -485,12 +685,22 @@ automation:
       - platform: state
         entity_id: event.universal_remote_universal_remote
     condition:
+      # from_state guard: reject re-registration after ESP reconnect
+      # (to_state would carry the last event_type from attributes and fire a
+      # phantom press — e.g. "power" → TV turns on at every ESP boot).
       - condition: template
         value_template: >-
           {{ trigger.to_state is not none
+             and trigger.from_state is not none
              and trigger.to_state.attributes.event_type is defined
-             and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+             and trigger.to_state.state not in ['unknown', 'unavailable']
+             and trigger.from_state.state not in ['unknown', 'unavailable']
+             and trigger.to_state.state != trigger.from_state.state }}
     variables:
+      # HA silently re-coerces the variable value back to its native type
+      # after rendering the template, so `| string` here DOESN'T stick —
+      # "2" becomes int 2 by the time the choose-conditions see it.
+      # We stringify inside every condition that does membership checks.
       button: "{{ trigger.to_state.attributes.event_type }}"
     action:
       - choose:
@@ -515,10 +725,24 @@ automation:
               - stop: "handled by passback automation"
 
           # ---- Power and source ----
+          # Power toggles both Samsung TV and (if chromecast is active
+          # source) the Chromecast — HDMI-CEC alone isn't reliable.
+          # Chromecast direction follows its own current state (the TV
+          # doesn't expose on/off state to HA, but Chromecast does).
           - conditions: "{{ button == 'power' }}"
             sequence:
               - action: button.press
                 target: { entity_id: button.samsung_tv_power }
+              - if: "{{ states('input_text.tv_source') == 'chromecast' }}"
+                then:
+                  - choose:
+                      - conditions: "{{ is_state('media_player.televizor', 'on') or is_state('media_player.televizor', 'playing') or is_state('media_player.televizor', 'paused') or is_state('media_player.televizor', 'idle') }}"
+                        sequence:
+                          - action: remote.turn_off
+                            target: { entity_id: remote.televizor }
+                    default:
+                      - action: remote.turn_on
+                        target: { entity_id: remote.televizor }
 
           - conditions: "{{ button == 'input' }}"
             sequence:
@@ -564,20 +788,53 @@ automation:
                 data: { temperature: "{{ target_temp }}" }
 
           # ---- Navigation ----
-          - conditions: "{{ button in ['up','down','left','right','ok'] }}"
+          - conditions: "{{ button in ['up','down','left','right'] }}"
             sequence:
-              - if: >-
-                  {{ button == 'ok' and
-                     states('input_text.t9_buffer') | length > 0 }}
+              - action: script.remote_nav
+                data: { direction: "{{ button }}" }
+
+          # OK. For Chromecast we wait 600ms for a possible ok_hold so we
+          # don't send short-press (launches app) before long-press (opens
+          # context menu). For other sources the distinction is unused —
+          # fire immediately for snappy UX.
+          - conditions: "{{ button == 'ok' }}"
+            sequence:
+              - action: system_log.write
+                data: { level: warning, message: "IR-DBG ok enter" }
+              - if: "{{ states('input_text.tv_source') == 'chromecast' }}"
                 then:
-                  - action: script.t9_commit
-                else:
-                  - action: script.remote_nav
-                    data: { direction: "{{ button }}" }
+                  - action: system_log.write
+                    data: { level: warning, message: "IR-DBG ok: wait start" }
+                  - wait_for_trigger:
+                      - platform: state
+                        entity_id: event.universal_remote_universal_remote
+                    timeout: "00:00:00.300"
+                    continue_on_timeout: true
+                  - action: system_log.write
+                    data:
+                      level: warning
+                      message: >-
+                        IR-DBG ok: wait done trigger={{ wait.trigger is not none }}
+                        et={{ wait.trigger.to_state.attributes.event_type if wait.trigger else 'none' }}
+                  - if: >-
+                      {{ wait.trigger is not none and
+                         wait.trigger.to_state.attributes.event_type == 'ok_hold' }}
+                    then:
+                      - action: system_log.write
+                        data: { level: warning, message: "IR-DBG ok: hold detected, stop" }
+                      - stop: "hold detected, ok short suppressed"
+              - action: system_log.write
+                data: { level: warning, message: "IR-DBG ok: fire short" }
+              - action: script.remote_nav
+                data: { direction: ok, delay_secs: 0 }
 
           # ---- OK hold: context menu ----
           - conditions: "{{ button == 'ok_hold' }}"
             sequence:
+              - action: system_log.write
+                data:
+                  level: warning
+                  message: "IR-DBG ok_hold enter"
               - choose:
                   - conditions: "{{ states('input_text.tv_source') == 'pc' }}"
                     sequence:
@@ -586,25 +843,49 @@ automation:
                           entity_id: media_player.192_168_0_11
                           method: Input.ContextMenu
                 default:
-                  # Chromecast: KEYCODE_MENU opens app-specific menu (works in
-                  # YouTube Home/video, Netflix, settings, etc.). No universal
-                  # "context menu" on Android TV.
+                  - action: system_log.write
+                    data: { level: warning, message: "IR-DBG ok_hold: sending DPAD_CENTER 2.0s" }
                   - action: remote.send_command
                     target: { entity_id: remote.televizor }
-                    data: { command: KEYCODE_MENU }
+                    data:
+                      command: DPAD_CENTER
+                      delay_secs: 0
+                      hold_secs: 2.0
+                  - action: system_log.write
+                    data: { level: warning, message: "IR-DBG ok_hold: DPAD_CENTER done" }
           - conditions: "{{ button == 'back' }}"
             sequence:
               - action: script.remote_nav
-                data: { direction: back }
+                data: { direction: back, delay_secs: 0 }
           - conditions: "{{ button == 'menu' }}"
             sequence:
               - action: script.remote_nav
-                data: { direction: menu }
+                data: { direction: menu, delay_secs: 0 }
           - conditions: "{{ button == 'exit' }}"
             sequence:
-              # Exit always routes to Samsung (kills TV overlays reliably).
-              - action: button.press
-                target: { entity_id: button.samsung_tv_exit }
+              # Exit is source-aware:
+              #   chromecast → KEYCODE_BACK (closes context menus, exits
+              #     videos/dialogs/overlays, navigates back in apps —
+              #     Samsung TV EXIT doesn't reach Google TV internals)
+              #   pc → Kodi Input.Back
+              #   otherwise → Samsung TV exit (kills TV-side overlays)
+              - choose:
+                  - conditions: "{{ states('input_text.tv_source') == 'chromecast' }}"
+                    sequence:
+                      - action: remote.send_command
+                        target: { entity_id: remote.televizor }
+                        data:
+                          command: KEYCODE_BACK
+                          delay_secs: 0
+                  - conditions: "{{ states('input_text.tv_source') == 'pc' }}"
+                    sequence:
+                      - action: kodi.call_method
+                        data:
+                          entity_id: media_player.192_168_0_11
+                          method: Input.Back
+                default:
+                  - action: button.press
+                    target: { entity_id: button.samsung_tv_exit }
           - conditions: "{{ button == 'home' }}"
             sequence:
               - action: button.press
@@ -614,53 +895,54 @@ automation:
           - conditions: "{{ button == 'play' }}"
             sequence:
               - action: script.remote_media
-                data: { action: play_pause }
+                data: { action: play_pause, delay_secs: 0 }
           - conditions: "{{ button == 'prev' }}"
             sequence:
               - action: script.remote_media
-                data: { action: previous }
+                data: { action: previous, delay_secs: 0 }
           - conditions: "{{ button == 'next' }}"
             sequence:
               - action: script.remote_media
-                data: { action: next }
+                data: { action: next, delay_secs: 0 }
 
           # ---- Colors ----
           - conditions: "{{ button == 'red' }}"
             sequence:
               - action: light.turn_on
                 target: { entity_id: light.liustra }
-                data: { effect: "Красный" }
+                data: { effect: "Красный", delay_secs: 0 }
           - conditions: "{{ button == 'green' }}"
             sequence:
               - action: light.turn_on
                 target: { entity_id: light.liustra }
-                data: { effect: "Зеленый" }
+                data: { effect: "Зеленый", delay_secs: 0 }
           - conditions: "{{ button == 'yellow' }}"
             sequence:
               - action: light.turn_on
                 target: { entity_id: light.liustra }
-                data: { effect: "Желтый" }
+                data: { effect: "Желтый", delay_secs: 0 }
 
           # ---- App launchers ----
           - conditions: "{{ button == 'netflix' }}"
             sequence:
               - action: script.app_launch_on_chromecast
-                data: { activity: com.netflix.ninja }
+                data: { activity: com.netflix.ninja, delay_secs: 0 }
           - conditions: "{{ button == 'youtube' }}"
             sequence:
               - action: script.app_launch_on_chromecast
-                data: { activity: com.google.android.youtube.tv }
+                data: { activity: com.google.android.youtube.tv, delay_secs: 0 }
           - conditions: "{{ button == 'apple_tv' }}"
             sequence:
               - action: script.app_launch_on_chromecast
-                data: { activity: com.ionitech.airscreen }
+                data: { activity: com.ionitech.airscreen, delay_secs: 0 }
           # disney handled by universal_remote_disney automation (see below)
 
           # ---- Smart / audio / info / guide ----
           - conditions: "{{ button == 'smart' }}"
             sequence:
-              - action: light.toggle
+              - action: light.turn_on
                 target: { entity_id: light.liustra }
+                data: { effect: "Глобус", delay_secs: 0 }
           - conditions: "{{ button == 'audio' }}"
             sequence:
               - action: script.audio_mode_handle_press
@@ -680,10 +962,12 @@ automation:
               - action: script.guide_toggle
 
           # ---- T9 digits ----
-          - conditions: "{{ button in ['0','1','2','3','4','5','6','7','8','9'] }}"
+          # Type-safe digit check: `button | int(-1)` returns 0-9 for digit
+          # events (whether "5" or 5) and -1 for non-digits.
+          - conditions: "{{ 0 <= (button | int(-1)) <= 9 }}"
             sequence:
               - action: script.t9_input
-                data: { digit: "{{ button }}" }
+                data: { digit: "{{ button | string }}" }
           - conditions: "{{ button == 'dash' }}"
             sequence:
               - action: script.t9_backspace
@@ -705,6 +989,9 @@ automation:
       - condition: template
         value_template: >-
           {{ trigger.to_state is not none and
+             trigger.from_state is not none and
+             trigger.from_state.state not in ['unknown', 'unavailable'] and
+             trigger.to_state.state != trigger.from_state.state and
              trigger.to_state.attributes.event_type in ['prime', 'prime_hold'] }}
     action:
       - variables:
@@ -748,6 +1035,9 @@ automation:
       - condition: template
         value_template: >-
           {{ trigger.to_state is not none and
+             trigger.from_state is not none and
+             trigger.from_state.state not in ['unknown', 'unavailable'] and
+             trigger.to_state.state != trigger.from_state.state and
              trigger.to_state.attributes.event_type in ['disney', 'disney_hold'] }}
     action:
       - variables:
@@ -773,7 +1063,32 @@ automation:
                   - stop: "hold detected, disney short suppressed"
               - action: script.source_to_pc
 
-  # ===== Audio mode safety timeout — 5s after activation, if no action =====
+  # ===== Yandex voice search → TV =====
+  # Triggered by "Алиса, спроси Умный дом найди в телеке <фраза>".
+  # Requires AlexxIT/YandexDialogs set up with an intent "search_tv"
+  # that has grammar "найди в телеке $query" (YANDEX.STRING entity).
+  - alias: TV search via Yandex intent
+    id: tv_search_via_yandex
+    mode: parallel
+    max: 3
+    trigger:
+      - platform: event
+        event_type: yandex_intent
+        event_data:
+          intent: search_tv
+    action:
+      - action: script.tv_search
+        data:
+          query: "{{ trigger.event.data.query }}"
+      - event: yandex_intent_response
+        event_data:
+          text: "Ищу {{ trigger.event.data.query }}"
+          end_session: true
+
+  # ===== Audio mode safety timeout — 3s of inactivity =====
+  # Restarts on activation AND on every dispatched in-mode press (which
+  # bumps audio_last_press_ms). Sticky keys (vol/up/down) keep the mode
+  # alive across taps this way.
   - alias: Audio mode inactivity timeout
     id: audio_mode_timeout
     mode: restart
@@ -781,8 +1096,14 @@ automation:
       - platform: state
         entity_id: input_boolean.audio_mode
         to: "on"
+      - platform: state
+        entity_id: input_text.audio_last_press_ms
+    condition:
+      - condition: state
+        entity_id: input_boolean.audio_mode
+        state: "on"
     action:
-      - delay: "00:00:05"
+      - delay: "00:00:03"
       - if: "{{ is_state('input_boolean.audio_mode', 'on') }}"
         then:
           - action: script.audio_mode_deactivate
@@ -798,6 +1119,9 @@ automation:
       - condition: template
         value_template: >-
           {{ trigger.to_state is not none
+             and trigger.from_state is not none
+             and trigger.from_state.state not in ['unknown', 'unavailable']
+             and trigger.to_state.state != trigger.from_state.state
              and trigger.to_state.attributes.event_type == 'samsung_ir_source' }}
     action:
       # Wait for a direction (left/right) within 5s

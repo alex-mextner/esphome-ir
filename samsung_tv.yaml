@@ -8,12 +8,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E040BF
-          repeat:
-            times: 5
-            wait_time: 40ms
 
   - platform: template
     name: "Power ON"
@@ -24,12 +21,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E09966
-          repeat:
-            times: 5
-            wait_time: 40ms
 
   - platform: template
     name: "Vol+"
@@ -40,12 +34,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E0E01F
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Vol-"
@@ -56,12 +47,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E0D02F
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Mute"
@@ -72,12 +60,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E0F00F
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Source"
@@ -88,12 +73,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E0807F
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Up"
@@ -104,12 +86,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E006F9
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Down"
@@ -120,12 +99,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E08679
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Left"
@@ -136,12 +112,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E0A659
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Right"
@@ -152,12 +125,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E046B9
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "OK"
@@ -168,12 +138,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E016E9
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Menu"
@@ -184,12 +151,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E058A7
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Back"
@@ -200,12 +164,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E01AE5
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Exit"
@@ -216,12 +177,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E0B44B
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Home"
@@ -232,12 +190,9 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E09E61
-          repeat:
-            times: 3
-            wait_time: 40ms
 
   - platform: template
     name: "Info"
@@ -248,9 +203,7 @@ button:
     on_press:
       - globals.set:
           id: ir_self_ignore_until
-          value: !lambda 'return millis() + 600;'
+          value: !lambda 'return millis() + 20;'
       - remote_transmitter.transmit_samsung:
           data: 0xE0E0F807
-          repeat:
-            times: 3
-            wait_time: 40ms
+            

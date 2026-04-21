@@ -1,0 +1,44 @@
+- generic [ref=e4]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - img [ref=e10]
+      - generic [ref=e14]: Log in with ID
+    - generic [ref=e15]:
+      - generic [ref=e17]:
+        - radiogroup "Username or email" [ref=e19]:
+          - generic [ref=e20] [cursor=pointer]:
+            - generic [ref=e21]: Email
+            - radio "Email" [checked] [ref=e23]
+          - generic [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: Phone number
+            - radio "Phone number" [ref=e27]
+        - textbox "Username or email" [active] [ref=e32]
+        - generic [ref=e33]:
+          - button [ref=e34] [cursor=pointer]
+          - button [ref=e37] [cursor=pointer]
+          - button [ref=e40] [cursor=pointer]
+          - button [ref=e43] [cursor=pointer]
+          - button [ref=e46] [cursor=pointer]
+      - generic [ref=e50]:
+        - button "Next" [ref=e51] [cursor=pointer]:
+          - generic [ref=e52]: Next
+        - button "Face or fingerprint login" [ref=e53] [cursor=pointer]:
+          - generic [ref=e56]: Face or fingerprint login
+        - button "QR code" [ref=e57] [cursor=pointer]:
+          - img [ref=e59]
+          - generic [ref=e61]: QR code
+        - button "Create ID" [ref=e62] [cursor=pointer]:
+          - generic [ref=e63]: Create ID
+    - generic [ref=e64]:
+      - generic [ref=e65]: Yandex ID. The key for all your services
+      - link "Learn more" [ref=e66] [cursor=pointer]:
+        - /url: https://id.yandex.ru/about
+  - contentinfo [ref=e67]:
+    - generic [ref=e68]:
+      - link "Use Incognito mode on a shared computer" [ref=e69] [cursor=pointer]:
+        - /url: https://yandex.ru/support/common/browsers-settings/incognito.html
+      - generic [ref=e70]:
+        - link "En" [ref=e71] [cursor=pointer]
+        - link "Help and support" [ref=e72] [cursor=pointer]:
+          - /url: https://yandex.ru/support/id/feedback.html
+        - generic [ref=e73]: © 2001–2026, Yandex
