@@ -2,17 +2,6 @@
 # Everything related to the living-room IR remote lives here.
 
 input_text:
-  t9_buffer:
-    name: T9 Buffer
-    max: 100
-    initial: ""
-    icon: mdi:keyboard
-  t9_state:
-    # Format: "<digit>:<index>:<timestamp_ms>". Empty = no multitap in flight.
-    name: T9 State
-    max: 40
-    initial: ""
-    icon: mdi:clock-outline
   audio_last_press_ms:
     # Epoch ms of the last 'audio' button press — used for double-tap detection.
     name: Audio last press (ms)
@@ -234,18 +223,14 @@ script:
         data:
           activity: "{{ activity }}"
 
-  # T9 submit: text was typed live by t9_input as the user pressed digits,
-  # so this just sends ENTER and clears the buffer-tracking state.
+  # Compatibility helper only. Normal remote flow uses the regular OK event;
+  # this script is kept so external callers no longer touch deleted T9 helpers.
   t9_commit:
     alias: T9 commit (submit)
     mode: single
     sequence:
       - variables:
-          text: "{{ states('input_text.t9_buffer') }}"
           source: "{{ states('input_text.tv_source') }}"
-      - if: "{{ text | length == 0 }}"
-        then:
-          - stop: "empty buffer, nothing to submit"
       - choose:
           - conditions: "{{ source == 'chromecast' }}"
             sequence:
@@ -254,19 +239,12 @@ script:
                 data: { command: KEYCODE_ENTER, delay_secs: 0 }
           - conditions: "{{ source == 'pc' }}"
             sequence:
-              # Send empty text with done:true to signal Kodi to submit.
               - action: kodi.call_method
                 data:
                   entity_id: media_player.192_168_0_11
                   method: Input.SendText
                   text: ""
                   done: true
-      - action: input_text.set_value
-        target: { entity_id: input_text.t9_buffer }
-        data: { value: "", delay_secs: 0 }
-      - action: input_text.set_value
-        target: { entity_id: input_text.t9_state }
-        data: { value: "", delay_secs: 0 }
 
   # Guide toggle: flips nav_to_tv AND toggles the browser window.
   guide_toggle:
@@ -282,118 +260,55 @@ script:
         default:
           - action: rest_command.guide_window_close
 
-  # T9 single-digit press with commit-delay.
-  t9_input:
-    alias: T9 digit press
-    mode: restart
+  # T9 character send — called from dispatcher for each t9_add_* / t9_cycle_*
+  # event. `char` is the logical character name ('a'-'z', 'space', '1').
+  t9_send_char:
+    alias: T9 send char
+    mode: queued
+    max: 20
     fields:
-      digit:
-        description: "0-9"
+      char:
+        description: "a-z, space, 1"
+      mode:
+        description: "add | cycle"
     sequence:
-      # Recover from uninitialized state (HAOS "unknown")
-      - if: >-
-          {{ states('input_text.t9_buffer') in ['unknown', 'unavailable'] }}
-        then:
-          - action: input_text.set_value
-            target: { entity_id: input_text.t9_buffer }
-            data: { value: "", delay_secs: 0 }
-      - if: >-
-          {{ states('input_text.t9_state') in ['unknown', 'unavailable'] }}
-        then:
-          - action: input_text.set_value
-            target: { entity_id: input_text.t9_state }
-            data: { value: "", delay_secs: 0 }
       - variables:
-          # HA re-parses template output back to native types in `variables`.
-          # So `d: "{{ digit | string }}"` stores "5" which becomes int 5,
-          # and `multitap[5]` → Undefined (keys are '0'-'9' strings).
-          # Workaround: don't store derived string values — compute inline
-          # inside each condition/action template (that pipeline isn't
-          # yaml-reparsed).
-          multitap:
-            '0': ' '
-            '1': '1'
-            '2': 'abc'
-            '3': 'def'
-            '4': 'ghi'
-            '5': 'jkl'
-            '6': 'mno'
-            '7': 'pqrs'
-            '8': 'tuv'
-            '9': 'wxyz'
-          now_ms: "{{ (now().timestamp() * 1000) | int }}"
-          buffer: "{{ states('input_text.t9_buffer') }}"
-          state_raw: "{{ states('input_text.t9_state') }}"
           source: "{{ states('input_text.tv_source') }}"
       - choose:
-          # Same digit within 1.5s: cycle in place (replace last char).
-          - conditions: >-
-              {{ ':' in state_raw
-                 and state_raw.split(':')[0] == (digit | string)
-                 and (now_ms | int) - (state_raw.split(':')[2] | int(0)) < 1500
-                 and (multitap[digit | string] | length) > 1 }}
+          - conditions: "{{ mode == 'cycle' and source == 'chromecast' }}"
             sequence:
-              - variables:
-                  prev_idx: "{{ state_raw.split(':')[1] | int(0) }}"
-                  chars_len: "{{ multitap[digit | string] | length }}"
-                  new_idx: "{{ (prev_idx + 1) % chars_len }}"
-                  new_char: "{{ multitap[digit | string][new_idx | int] }}"
-              - action: input_text.set_value
-                target: { entity_id: input_text.t9_buffer }
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data: { command: KEYCODE_DEL, delay_secs: 0 }
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data: { command: "text:{{ ' ' if (char | string) == 'space' else (char | string) }}" }
+          - conditions: "{{ mode == 'add' and source == 'chromecast' }}"
+            sequence:
+              - action: remote.send_command
+                target: { entity_id: remote.televizor }
+                data: { command: "text:{{ ' ' if (char | string) == 'space' else (char | string) }}" }
+          - conditions: "{{ mode == 'cycle' and source == 'pc' }}"
+            sequence:
+              - action: kodi.call_method
                 data:
-                  value: "{{ buffer[:-1] ~ new_char }}"
-              - action: input_text.set_value
-                target: { entity_id: input_text.t9_state }
-                data: { value: "{{ digit | string }}:{{ new_idx }}:{{ now_ms }}" }
-              # Live update on TV: backspace previous letter + send new one.
-              - choose:
-                  - conditions: "{{ source == 'chromecast' }}"
-                    sequence:
-                      - action: remote.send_command
-                        target: { entity_id: remote.televizor }
-                        data: { command: KEYCODE_DEL, delay_secs: 0 }
-                      - action: remote.send_command
-                        target: { entity_id: remote.televizor }
-                        data: { command: "text:{{ new_char }}" }
-                  - conditions: "{{ source == 'pc' }}"
-                    sequence:
-                      - action: kodi.call_method
-                        data:
-                          entity_id: media_player.192_168_0_11
-                          method: Input.ExecuteAction
-                          action: backspace
-                      - action: kodi.call_method
-                        data:
-                          entity_id: media_player.192_168_0_11
-                          method: Input.SendText
-                          text: "{{ new_char }}"
-                          done: false
-        # Different digit or timeout — commit prev letter (already on TV),
-        # append first char of the new digit.
-        default:
-          - variables:
-              new_char: "{{ multitap[digit | string][0] }}"
-          - action: input_text.set_value
-            target: { entity_id: input_text.t9_buffer }
-            data: { value: "{{ buffer ~ new_char }}" }
-          - action: input_text.set_value
-            target: { entity_id: input_text.t9_state }
-            data: { value: "{{ digit | string }}:0:{{ now_ms }}" }
-          # Live update on TV: append new letter.
-          - choose:
-              - conditions: "{{ source == 'chromecast' }}"
-                sequence:
-                  - action: remote.send_command
-                    target: { entity_id: remote.televizor }
-                    data: { command: "text:{{ new_char }}" }
-              - conditions: "{{ source == 'pc' }}"
-                sequence:
-                  - action: kodi.call_method
-                    data:
-                      entity_id: media_player.192_168_0_11
-                      method: Input.SendText
-                      text: "{{ new_char }}"
-                      done: false
+                  entity_id: media_player.192_168_0_11
+                  method: Input.ExecuteAction
+                  action: backspace
+              - action: kodi.call_method
+                data:
+                  entity_id: media_player.192_168_0_11
+                  method: Input.SendText
+                  text: "{{ ' ' if (char | string) == 'space' else (char | string) }}"
+                  done: false
+          - conditions: "{{ mode == 'add' and source == 'pc' }}"
+            sequence:
+              - action: kodi.call_method
+                data:
+                  entity_id: media_player.192_168_0_11
+                  method: Input.SendText
+                  text: "{{ ' ' if (char | string) == 'space' else (char | string) }}"
+                  done: false
 
   # Universal TV search: opens search and types the query on the active
   # source. Used from Yandex intent ("Алиса, спроси Умный дом найди в
@@ -445,21 +360,11 @@ script:
 
   t9_backspace:
     alias: T9 backspace
-    mode: single
+    mode: queued
+    max: 5
     sequence:
       - variables:
-          buffer: "{{ states('input_text.t9_buffer') }}"
           source: "{{ states('input_text.tv_source') }}"
-      - if: "{{ buffer | length == 0 }}"
-        then:
-          - stop: "buffer empty"
-      - action: input_text.set_value
-        target: { entity_id: input_text.t9_buffer }
-        data: { value: "{{ buffer[:-1] }}" }
-      - action: input_text.set_value
-        target: { entity_id: input_text.t9_state }
-        data: { value: "", delay_secs: 0 }
-      # Live: also delete the last char on the TV.
       - choose:
           - conditions: "{{ source == 'chromecast' }}"
             sequence:
@@ -697,11 +602,33 @@ automation:
              and trigger.from_state.state not in ['unknown', 'unavailable']
              and trigger.to_state.state != trigger.from_state.state }}
     variables:
-      # HA silently re-coerces the variable value back to its native type
-      # after rendering the template, so `| string` here DOESN'T stick —
-      # "2" becomes int 2 by the time the choose-conditions see it.
-      # We stringify inside every condition that does membership checks.
-      button: "{{ trigger.to_state.attributes.event_type }}"
+      # raw_button is the ESP event_type exactly as received.
+      raw_button: "{{ trigger.to_state.attributes.event_type }}"
+      t9_mode: >-
+        {{ (raw_button | string).split('_')[1]
+           if (raw_button | string).startswith('t9_add_') or
+              (raw_button | string).startswith('t9_cycle_')
+           else '' }}
+      t9_digit: >-
+        {{ (raw_button | string).split('_')[2]
+           if (raw_button | string).startswith('t9_add_') or
+              (raw_button | string).startswith('t9_cycle_')
+           else '' }}
+      t9_char: >-
+        {{ (raw_button | string).split('_')[3]
+           if (raw_button | string).startswith('t9_add_') or
+              (raw_button | string).startswith('t9_cycle_')
+           else '' }}
+      # button is the logical button used by non-T9 handlers. T9 char events
+      # normalize back to their physical digit so audio-mode digit shortcuts
+      # keep working. OK remains a normal OK event.
+      button: >-
+        {%- if (raw_button | string).startswith('t9_add_') or
+              (raw_button | string).startswith('t9_cycle_') -%}
+          {{ t9_digit }}
+        {%- else -%}
+          {{ raw_button }}
+        {%- endif -%}
     action:
       - choose:
           # ---- Audio mode: intercept ALL keys when active (except 'audio' itself,
@@ -720,7 +647,7 @@ automation:
               - stop: "handled by dedicated automation"
 
           # ---- Samsung IR passback — handled by dedicated automation ----
-          - conditions: "{{ button.startswith('samsung_ir_') }}"
+          - conditions: "{{ (button | string).startswith('samsung_ir_') }}"
             sequence:
               - stop: "handled by passback automation"
 
@@ -961,13 +888,19 @@ automation:
             sequence:
               - action: script.guide_toggle
 
-          # ---- T9 digits ----
-          # Type-safe digit check: `button | int(-1)` returns 0-9 for digit
-          # events (whether "5" or 5) and -1 for non-digits.
-          - conditions: "{{ 0 <= (button | int(-1)) <= 9 }}"
+          # ---- T9 — computed by ESP, we just dispatch to TV ----
+          - conditions: "{{ (raw_button | string).startswith('t9_add_') }}"
             sequence:
-              - action: script.t9_input
-                data: { digit: "{{ button | string }}" }
+              - action: script.t9_send_char
+                data:
+                  char: "{{ t9_char }}"
+                  mode: add
+          - conditions: "{{ (raw_button | string).startswith('t9_cycle_') }}"
+            sequence:
+              - action: script.t9_send_char
+                data:
+                  char: "{{ t9_char }}"
+                  mode: cycle
           - conditions: "{{ button == 'dash' }}"
             sequence:
               - action: script.t9_backspace
