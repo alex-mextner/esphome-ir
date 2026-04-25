@@ -17,7 +17,13 @@ CONFIG_SCHEMA = climate.climate_schema(HaierClimate).extend({
 
 async def to_code(config):
     if CORE.is_esp8266 or CORE.is_esp32:
-        cg.add_library("crankyoldgit/IRremoteESP8266", "2.8.4")
+        # Need master: 2.8.4 uses the legacy hw_timer API removed in
+        # arduino-esp32 v3 (used by ESP32-C3 builds in ESPHome 2026.3+).
+        cg.add_library(
+            "IRremoteESP8266",
+            None,
+            "https://github.com/crankyoldgit/IRremoteESP8266.git",
+        )
 
     var = cg.new_Pvariable(config[CONF_ID])
     await climate.register_climate(var, config)

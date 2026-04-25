@@ -1,5 +1,20 @@
 # esphome-ir project notes
 
+## HA config sync — keep `/config/esphome/` in step
+
+Source of truth for ESPHome configs is this repo. The HAOS Dashboard add-on
+reads `/config/esphome/*.yaml` directly, so HA must mirror the repo. Sync is
+automated via post-commit hook → `scripts/sync-esphome-to-ha.sh`. After ANY
+edit to `esp32.yaml`, `samsung_tv.yaml`, `haier_ac.yaml`,
+`universal_remote.yaml`, `secrets.yaml`, or `components/`, ensure a sync
+runs (commit triggers it; otherwise run the script manually). Without it,
+the Dashboard "Logs" / "Install" buttons operate on stale files.
+
+When the file list changes (new yaml, renamed/removed file), update the
+`FILES=(...)` array in `scripts/sync-esphome-to-ha.sh` AND remove the
+obsolete file on HA: `sshpass -p "$HA_SSH_PASS" ssh ... 'sudo rm -f
+/config/esphome/<old>.yaml'`.
+
 ## Network layout
 
 - `192.168.0.52` — wemos-d1 (ESP8266, IR transmitter/receiver)

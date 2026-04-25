@@ -22,7 +22,7 @@ set -a; source .env; set +a
 : "${HA_SSH_HOST:?}"
 : "${HA_SSH_PASS:?}"
 
-FILES=(wemos.yaml universal_remote.yaml samsung_tv.yaml haier_ac.yaml secrets.yaml)
+FILES=(esp32.yaml universal_remote.yaml samsung_tv.yaml haier_ac.yaml secrets.yaml)
 
 SSH=(sshpass -p "$HA_SSH_PASS" ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR "$HA_SSH_USER@$HA_SSH_HOST")
 

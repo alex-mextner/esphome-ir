@@ -13,7 +13,7 @@ climate:
   - platform: haier_acyrw02
     name: "Кондиционер"
     sensor_id: current_temperature
-    pin: 14 # D5
+    pin: 2
     device_id: device_haier
     web_server:
       sorting_group_id: group_haier
