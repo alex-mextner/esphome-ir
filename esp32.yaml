@@ -27,8 +27,7 @@ wifi:
     password: "fallback123"
 
 logger:
-  # ESP32-C3 dev kits expose the console over the built-in USB-Serial-JTAG
-  # bridge (/dev/tty.usbmodem*).
+  # Console over the built-in USB-Serial-JTAG bridge (/dev/tty.usbmodem*).
   hardware_uart: USB_SERIAL_JTAG
 ota:
   platform: esphome
@@ -106,7 +105,7 @@ output:
     pin: GPIO4
     id: out_led_red
   - platform: ledc
-    pin: GPIO9
+    pin: GPIO6
     id: out_led_green
   - platform: ledc
     pin: GPIO3
