@@ -598,9 +598,11 @@ automation:
           {{ trigger.to_state is not none
              and trigger.from_state is not none
              and trigger.to_state.attributes.event_type is defined
-             and trigger.to_state.state not in ['unknown', 'unavailable']
-             and trigger.from_state.state not in ['unknown', 'unavailable']
-             and trigger.to_state.state != trigger.from_state.state }}
+             and trigger.to_state.attributes.event_type not in ['', none]
+             and (
+               trigger.to_state.state != trigger.from_state.state or
+               trigger.to_state.attributes.event_type != trigger.from_state.attributes.event_type
+             ) }}
     variables:
       # raw_button is the ESP event_type exactly as received.
       raw_button: "{{ trigger.to_state.attributes.event_type }}"
