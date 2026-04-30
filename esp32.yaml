@@ -8,6 +8,8 @@ esphome:
       name: Кондиционер Haier
     - id: device_universal
       name: Universal Remote
+    - id: device_lamp
+      name: RGBW Lamp
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -47,6 +49,35 @@ web_server:
       sorting_weight: 2
     - id: group_universal
       name: "Universal Remote"
+
+debug:
+  update_interval: 5s
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"
+
+sensor:
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Max Block"
+    min_free:
+      name: "Heap Min Free"
+    fragmentation:
+      name: "Heap Fragmentation"
+    loop_time:
+      name: "Loop Time"
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 5s
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 10s
 
 globals:
   # Self-echo suppression window for Samsung IR transmits.
@@ -105,18 +136,22 @@ output:
     pin: GPIO4
     id: out_led_red
   - platform: ledc
-    pin: GPIO6
+    # Physical board wiring has green and white swapped: green is on IO1.
+    pin: GPIO1
     id: out_led_green
   - platform: ledc
     pin: GPIO3
     id: out_led_blue
   - platform: ledc
-    pin: GPIO10
+    # Keep LED channels off ESP32-C3 strapping pins; external LED boards can
+    # pull GPIO9 low at reset and leave the chip in bootloader mode.
+    pin: GPIO6
     id: out_led_white
 
 light:
   - platform: rgbw
     name: "RGBW"
+    device_id: device_lamp
     red: out_led_red
     green: out_led_green
     blue: out_led_blue
