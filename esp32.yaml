@@ -1,6 +1,10 @@
 esphome:
   name: esp32-c3-ir
   friendly_name: IR Controller (ESP32-C3)
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: ir_led_current_test
   devices:
     - id: device_samsung
       name: Samsung TV
@@ -52,6 +56,26 @@ web_server:
 
 debug:
   update_interval: 5s
+
+script:
+  - id: ir_led_current_test
+    mode: restart
+    then:
+      - lambda: |-
+          pinMode(2, OUTPUT);
+          digitalWrite(2, HIGH);
+          ESP_LOGW("ir_current_test", "GPIO2 forced HIGH for 120s");
+      - delay: 120s
+      - lambda: |-
+          digitalWrite(2, LOW);
+          ESP_LOGW("ir_current_test", "GPIO2 released LOW");
+
+button:
+  - platform: template
+    name: "IR LED Current Test 120s"
+    entity_category: diagnostic
+    on_press:
+      - script.execute: ir_led_current_test
 
 text_sensor:
   - platform: debug
