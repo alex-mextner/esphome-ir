@@ -1,6 +1,17 @@
 esphome:
   name: esp32-c3-ir
   friendly_name: IR Controller (ESP32-C3)
+  includes:
+    - custom_mac.h
+  on_boot:
+    - priority: 350
+      then:
+        - lambda: |-
+            set_custom_mac();
+    - priority: 200
+      then:
+        - lambda: |-
+            configure_wifi_compat();
   devices:
     - id: device_samsung
       name: Samsung TV
@@ -24,7 +35,6 @@ esp32:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  fast_connect: true
   power_save_mode: none
   ap:
     ssid: "esp32-c3-ir Fallback"
