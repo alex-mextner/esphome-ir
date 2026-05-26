@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Push current ESPHome config to /config/esphome/ on HAOS so the Dashboard
-# add-on sees the same files as this repo. Used as a post-commit hook AND
-# as a manual sync step when OTA is broken and we need USB flash via the
-# Dashboard.
+# Push current ESPHome config to /home/ultra/esphome/ on the HA host so the
+# Dashboard container sees the same files as this repo. Used as a post-commit
+# hook AND as a manual sync step when OTA is broken and we need USB flash
+# via the Dashboard.
 #
-# Requires sshpass and .env with HA_SSH_USER, HA_SSH_HOST, HA_SSH_PASS.
+# Requires .env with HA_SSH_USER, HA_SSH_HOST. Uses SSH key auth (no password).
 
 set -euo pipefail
 
@@ -20,15 +20,14 @@ set -a; source .env; set +a
 
 : "${HA_SSH_USER:?}"
 : "${HA_SSH_HOST:?}"
-: "${HA_SSH_PASS:?}"
 
 FILES=(esp32.yaml universal_remote.yaml samsung_tv.yaml haier_ac.yaml secrets.yaml)
 
-SSH=(sshpass -p "$HA_SSH_PASS" ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR "$HA_SSH_USER@$HA_SSH_HOST")
+SSH=(ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR "$HA_SSH_USER@$HA_SSH_HOST")
 
 for f in "${FILES[@]}"; do
   [[ -f "$f" ]] || continue
-  cat "$f" | "${SSH[@]}" "sudo tee /config/esphome/$f > /dev/null"
+  cat "$f" | "${SSH[@]}" "tee /home/ultra/esphome/$f > /dev/null"
 done
 
 # components/ — replace wholesale. Exclude macOS AppleDouble junk and caches.
@@ -37,9 +36,9 @@ tar --exclude='._*' \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     -cz components/ \
-  | "${SSH[@]}" "sudo rm -rf /config/esphome/components && sudo tar -C /config/esphome/ -xz"
+  | "${SSH[@]}" "rm -rf /home/ultra/esphome/components && tar -C /home/ultra/esphome/ -xz"
 
 # Clean any legacy junk that might have survived a previous bad push.
-"${SSH[@]}" "sudo find /config/esphome -name '._*' -delete 2>/dev/null || true"
+"${SSH[@]}" "find /home/ultra/esphome -name '._*' -delete 2>/dev/null || true"
 
 echo "sync-esphome-to-ha: pushed $(echo "${FILES[@]}") + components/"
