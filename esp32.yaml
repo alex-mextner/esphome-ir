@@ -1,6 +1,8 @@
 esphome:
   name: esp32-c3-ir
   friendly_name: IR Controller (ESP32-C3)
+  includes:
+    - ir_remote.h
   devices:
     - id: device_samsung
       name: Samsung TV
@@ -115,12 +117,6 @@ packages:
   samsung: !include samsung_tv.yaml
   haier: !include haier_ac.yaml
   universal: !include universal_remote.yaml
-
-remote_transmitter:
-  id: tx
-  pin: GPIO2
-  carrier_duty_percent: 50%
-  non_blocking: true
 
 remote_receiver:
   pin:
