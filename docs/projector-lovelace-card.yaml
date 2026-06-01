@@ -1,0 +1,71 @@
+# Projector "remote" — paste as a Manual card on any dashboard.
+# Top: the media_player card (power / play-pause / volume / mute).
+# Below: the raw IR keys the media_player can't express (d-pad, menu,
+# back, source). All core cards — no custom components.
+type: vertical-stack
+cards:
+  - type: media-control
+    entity: media_player.projector
+
+  # Direction pad (the projector remote has no center/OK key).
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: button
+        name: " "
+        show_icon: false
+      - type: button
+        name: Up
+        icon: mdi:chevron-up
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_up } }
+      - type: button
+        name: Menu
+        icon: mdi:menu
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_menu } }
+
+      - type: button
+        name: Left
+        icon: mdi:chevron-left
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_left } }
+      - type: button
+        name: Source
+        icon: mdi:import
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_source } }
+      - type: button
+        name: Right
+        icon: mdi:chevron-right
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_right } }
+
+      - type: button
+        name: Back
+        icon: mdi:arrow-left-top
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_back } }
+      - type: button
+        name: Down
+        icon: mdi:chevron-down
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_down } }
+      - type: button
+        name: Play/Pause
+        icon: mdi:play-pause
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_play_pause } }
+
+  # Volume row — the media_player card has +/- but no mute, and universal
+  # media_player can't expose mute without a fake is_volume_muted helper,
+  # so the IR mute lives here.
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: button
+        name: Vol -
+        icon: mdi:volume-minus
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_vol_down } }
+      - type: button
+        name: Mute
+        icon: mdi:volume-mute
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_mute } }
+      - type: button
+        name: Vol +
+        icon: mdi:volume-plus
+        tap_action: { action: perform-action, perform_action: button.press, target: { entity_id: button.projector_vol_up } }
