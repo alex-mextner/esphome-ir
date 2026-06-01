@@ -38,6 +38,42 @@ script:
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.projector_power }
 
+automation:
+  # Projector power drives the active source. Turning the projector on makes
+  # it the active source (input_text.tv_source = projector); turning it off
+  # falls back to chromecast — you were watching on the projector, so route
+  # the TV back to the Chromecast. Only reverts to chromecast if projector
+  # was actually the active source (don't hijack if it powered off in the
+  # background while you were on pc/chromecast). tv_source +
+  # source_to_chromecast live in the universal_remote package; HA merges
+  # packages so the cross-package references resolve.
+  - alias: Projector power follows source
+    id: projector_power_follows_source
+    mode: queued
+    trigger:
+      - platform: state
+        entity_id: input_boolean.projector_power
+        from: "off"
+        to: "on"
+        id: "on"
+      - platform: state
+        entity_id: input_boolean.projector_power
+        from: "on"
+        to: "off"
+        id: "off"
+    action:
+      - choose:
+          - conditions: "{{ trigger.id == 'on' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.tv_source }
+                data: { value: projector }
+          - conditions: >-
+              {{ trigger.id == 'off' and
+                 is_state('input_text.tv_source', 'projector') }}
+            sequence:
+              - action: script.source_to_chromecast
+
 media_player:
   # Commands-only universal player (no children) — state comes from the
   # assumed-power input_boolean. Volume is relative (vol±/mute buttons),
