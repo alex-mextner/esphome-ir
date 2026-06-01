@@ -36,7 +36,7 @@ tar --exclude='._*' \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     -cz components/ \
-  | "${SSH[@]}" "rm -rf /home/ultra/esphome/components && tar -C /home/ultra/esphome/ -xz"
+  | "${SSH[@]}" "rm -rf /home/ultra/esphome/components 2>/dev/null; tar -C /home/ultra/esphome/ -xz"
 
 # Clean any legacy junk that might have survived a previous bad push.
 "${SSH[@]}" "find /home/ultra/esphome -name '._*' -delete 2>/dev/null || true"

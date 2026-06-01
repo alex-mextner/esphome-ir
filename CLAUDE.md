@@ -24,6 +24,16 @@ When the file list changes (new yaml, renamed/removed file), update the
 obsolete file on the host: `ssh ultra@home.tailbfe8ea.ts.net 'rm -f
 /home/ultra/esphome/<old>.yaml'`.
 
+**The ESPHome container runs as `user: "1000:1000"` (ultra), NOT root** — set in
+`/home/ultra/homeassistant/ha.docker-compose.yaml` (`HOME=/config` too, so PIO
+data stays in the ultra-owned `/config/.esphome`). This is deliberate: when it
+ran as root it left root-owned `__pycache__`/`build` in the bind-mount, and the
+sync script's `rm -rf components` then failed on those files. Historically that
+`rm` was chained `&& tar`, so a failed rm SKIPPED the untar and wiped the
+component dir (lost `__init__.py`/`.cpp`/`.h` → "Could not find __init__.py").
+Now: container is non-root (no root files) AND the script uses `rm ... ; tar`
+(untar always runs). If you ever recreate the container, keep the `user:` line.
+
 ## Network layout
 
 - ESP32-C3 IR controller (living room) — **DHCP, IP changes. NEVER hardcode
