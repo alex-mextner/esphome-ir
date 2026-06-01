@@ -1,0 +1,157 @@
+# projector.yaml
+# Living-room projector — extended-NEC remote, address 0xBD00.
+# Codes captured from the factory projector remote (NEC, verified against
+# the receiver's own decode). Each button fires ONE leader frame via the
+# shared IRsend helper (send_nec). Toggle/cycle keys (power, source) must
+# never auto-repeat, so a single frame per press is deliberate.
+#
+# Entity ids (device "Projector"): button.projector_<name>.
+# Power is special: the projector powers ON with one press but needs TWO
+# presses ~1s apart to power OFF. That double-tap lives on the HA side
+# (script.projector_turn_off / media_player.projector), not here — the
+# firmware only knows "send the power code once".
+
+button:
+  - platform: template
+    name: "Power"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 1
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xFE01);
+
+  - platform: template
+    name: "Play Pause"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 2
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xA05F);
+
+  - platform: template
+    name: "Source"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 3
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xFB04);
+
+  - platform: template
+    name: "Up"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 4
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xF40B);
+
+  - platform: template
+    name: "Down"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 5
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xF00F);
+
+  - platform: template
+    name: "Left"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 6
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xB649);
+
+  - platform: template
+    name: "Right"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 7
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xB54A);
+
+  - platform: template
+    name: "Menu"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 8
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xF50A);
+
+  - platform: template
+    name: "Back"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 9
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xAB54);
+
+  - platform: template
+    name: "Vol Down"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 10
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xEF10);
+
+  - platform: template
+    name: "Mute"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 11
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0x956A);
+
+  - platform: template
+    name: "Vol Up"
+    device_id: device_projector
+    web_server:
+      sorting_group_id: group_projector
+      sorting_weight: 12
+    on_press:
+      - globals.set:
+          id: ir_self_ignore_until
+          value: !lambda 'return millis() + 120;'
+      - lambda: send_nec(0xBD00, 0xF30C);
