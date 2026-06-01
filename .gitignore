@@ -4,6 +4,7 @@
 /.esphome/
 /secrets.yaml
 /.env
+/.mcp.json
 .DS_Store
 .claude/
 components/**/__pycache__/

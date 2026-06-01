@@ -26,10 +26,37 @@ obsolete file on the host: `ssh ultra@home.tailbfe8ea.ts.net 'rm -f
 
 ## Network layout
 
-- `192.168.0.52` — ESP32-C3 IR controller (living room)
-- `home.tailbfe8ea.ts.net` — HA host (Ubuntu + Docker)
+- ESP32-C3 IR controller (living room) — **DHCP, IP changes. NEVER hardcode
+  the IP. Always use mDNS: `esp32-c3-ir.local`.** Node name is `esp32-c3-ir`
+  (the `esphome: name:` in esp32.yaml), so the hostname is `esp32-c3-ir.local`
+  — resolves, pings, and serves :80/:6053 fine. (A past note claimed mDNS was
+  unreliable — that was the wrong hostname being tried, e.g. `esp32-ir.local`.
+  The correct name works.) Use it everywhere: `curl http://esp32-c3-ir.local/events`,
+  `esphome ... --device esp32-c3-ir.local`. The unit's Espressif MAC is
+  `E0:72:A1:70:E5:6C` if you ever need ARP as a last resort.
+- `home.tailbfe8ea.ts.net` — HA host (Ubuntu + Docker), HA Core on `:8123`
 - `192.168.0.18` — Ultras-MBP (dev Mac)
 - `192.168.0.11` — Windows mini-PC (Kodi, guide window HTTP listener)
+
+## Controlling HA from the CLI (no MCP needed)
+
+`.env` holds `HA_TOKEN` (long-lived) + `HA_URL`. Drive any entity via REST:
+`curl -H "Authorization: Bearer $HA_TOKEN" -d '{"entity_id":"...","temperature":22}' \
+  $HA_URL/api/services/climate/set_temperature`. AC entity is
+`climate.konditsioner_haier_konditsioner`. There is also an HTTP MCP server in
+HA (`$HA_URL/api/mcp`, hass-mcp-server); `.mcp.json` (gitignored, holds the
+token) wires it into Claude Code — needs a session restart to load.
+
+## Haier AC IR — weak reach, not a code bug
+
+The Haier protocol/codes are CORRECT (native remote decodes via `remote.haier`;
+HA-sent COOL/temp/OFF all work when the LED is aimed at the unit). The recurring
+"AC doesn't respond" is PHYSICAL: the IR LED on GPIO2 doesn't reach the AC from
+the device's resting spot (reaches the TV, not the AC). A transistor IS already
+fitted and carrier is correct (38 kHz, 50% duty), so it's aim/range, not drive
+current. `control()` resends the frame `kHaierResendCount`+1 times to make a
+single HA action land when the signal is marginal — but repeats can't fix a
+zero signal; that needs repositioning / a stronger or relocated LED.
 
 ## ESP32-C3 API connection slots
 

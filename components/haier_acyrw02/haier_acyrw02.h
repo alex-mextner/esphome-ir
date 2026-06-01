@@ -15,6 +15,11 @@ namespace haier_acyrw02 {
 const uint8_t HAIER_ACYRW02_TEMP_MIN = 16;  // 16C
 const uint8_t HAIER_ACYRW02_TEMP_MAX = 30;  // 32C
 
+// Extra frame repeats per command. A one-shot send is unreliable at the AC's
+// distance/angle; repeating the frame makes a single HA action land reliably.
+// Total frames sent = 1 + kHaierResendCount.
+const uint16_t kHaierResendCount = 5;
+
 class HaierClimate : public climate::Climate {
  public:
   HaierClimate() : climate::Climate() {}

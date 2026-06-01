@@ -122,7 +122,13 @@ void HaierClimate::control(const climate::ClimateCall &call) {
     this->preset = *call.get_preset();
   
   this->setup_ir_cmd();
-  ac_->send();
+  // Resend the frame several times. A single YRW02 frame is unreliable at the
+  // AC's distance/angle from the IR LED — empirically the unit catches the
+  // command only when the frame is repeated (a one-shot send is silently
+  // missed, a burst lands). send(N) repeats the frame N extra times with the
+  // correct inter-frame gap. ~6 frames blocks the loop ~0.6s, acceptable for
+  // a rare climate action.
+  ac_->send(kHaierResendCount);
 
   this->publish_state();
 
