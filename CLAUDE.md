@@ -47,16 +47,21 @@ obsolete file on the host: `ssh ultra@home.tailbfe8ea.ts.net 'rm -f
 HA (`$HA_URL/api/mcp`, hass-mcp-server); `.mcp.json` (gitignored, holds the
 token) wires it into Claude Code — needs a session restart to load.
 
-## Haier AC IR — weak reach, not a code bug
+## Haier AC IR — was a single-frame reliability bug, FIXED
 
-The Haier protocol/codes are CORRECT (native remote decodes via `remote.haier`;
-HA-sent COOL/temp/OFF all work when the LED is aimed at the unit). The recurring
-"AC doesn't respond" is PHYSICAL: the IR LED on GPIO2 doesn't reach the AC from
-the device's resting spot (reaches the TV, not the AC). A transistor IS already
-fitted and carrier is correct (38 kHz, 50% duty), so it's aim/range, not drive
-current. `control()` resends the frame `kHaierResendCount`+1 times to make a
-single HA action land when the signal is marginal — but repeats can't fix a
-zero signal; that needs repositioning / a stronger or relocated LED.
+The Haier protocol/codes are CORRECT (native remote decodes via `remote.haier`).
+The "AC doesn't respond from HA" bug was NOT a code/geometry problem: the signal
+from the device's resting spot is MARGINAL, not zero. A single YRW02 frame
+(what the old code sent once) was silently dropped, so single HA actions failed
+while multi-command bursts occasionally worked. Carrier is correct (38 kHz, 50%
+duty) and a transistor IS fitted — drive/modulation were never the issue.
+
+Fix (commit after 959116a): `control()` calls `ac_->send(kHaierResendCount)` —
+sends the frame 1+5 = 6 times back-to-back with correct inter-frame gaps. This
+made the AC respond reliably from HA **without aiming** the ESP. Note: a tight
+6-frame burst from ONE command works where 6 separate HA commands (1 frame each,
+spaced ~1.5 s) did not — the back-to-back burst is what lands. If reach ever
+degrades again, bump `kHaierResendCount` before assuming a hardware fault.
 
 ## ESP32-C3 API connection slots
 
