@@ -27,3 +27,12 @@ upstream**, preserving the local commits on top. Fetch upstream, rebase the
 fork branch onto upstream's release tag/HEAD, resolve conflicts, then restart
 HA and verify the patched behavior still works. Only plain-upstream pinned
 submodules (no local commits) may be fast-forwarded directly.
+
+**Never conclude "upstream superseded the fork" from a diff alone — verify at
+runtime.** Concrete burn (2026-06-02): dataplicity's fork
+`fix/dataplicity-modern-api` looked like upstream v1.3.0 had merged the same
+provisioning fix, so it was switched to clean v1.3.0. But v1.3.0 reintroduces
+the `api.dataplicity.com` **403** (agent disk-poll/sync rejected) — the fork's
+`install_package` pins `lomond==0.3.3` with `--no-deps`, which v1.3.0 lacks.
+Keep dataplicity on the fork. If you must change a fork, restart HA and confirm
+the feature actually works before declaring the upstream equivalent.
