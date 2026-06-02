@@ -5,6 +5,12 @@
 - Review staged changes before every commit with `git diff --staged`.
 - Run `git diff --staged --check` before committing to catch whitespace and patch issues.
 - Do not stage unrelated work unless the user explicitly asks to commit the current workspace checkpoint.
+- **Never bypass git hooks** — do not use `git commit --no-verify` / `-n` (or
+  `git push --no-verify`). The HA repo's pre-commit hook validates YAML with a
+  HA-aware loader (`scripts/ha_validate_yaml.sh`, handles `!include`/`!secret`/
+  `!input`), so a failure is a REAL error, not a false positive — fix the YAML
+  instead of skipping the hook. A bad config has put HA into recovery mode
+  before (2026-05-19); the hook exists to prevent exactly that.
 
 ## Updating forked / locally-patched submodules
 
