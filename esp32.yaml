@@ -10,6 +10,8 @@ esphome:
       name: Кондиционер Haier
     - id: device_universal
       name: Universal Remote
+    - id: device_projector
+      name: Projector
     - id: device_lamp
       name: RGBW Lamp
 
@@ -52,6 +54,9 @@ web_server:
       sorting_weight: 2
     - id: group_universal
       name: "Universal Remote"
+    - id: group_projector
+      name: "Projector"
+      sorting_weight: 3
 
 debug:
   update_interval: 5s
@@ -117,6 +122,7 @@ packages:
   samsung: !include samsung_tv.yaml
   haier: !include haier_ac.yaml
   universal: !include universal_remote.yaml
+  projector: !include projector.yaml
 
 remote_receiver:
   pin:

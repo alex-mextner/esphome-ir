@@ -21,24 +21,25 @@ set -a; source .env; set +a
 : "${HA_SSH_USER:?}"
 : "${HA_SSH_HOST:?}"
 
-FILES=(esp32.yaml universal_remote.yaml samsung_tv.yaml haier_ac.yaml secrets.yaml ir_remote.h)
+FILES=(esp32.yaml universal_remote.yaml samsung_tv.yaml haier_ac.yaml projector.yaml secrets.yaml ir_remote.h)
 
-SSH=(ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR "$HA_SSH_USER@$HA_SSH_HOST")
-
+# Sync individual YAML files via rsync (single file per invocation, atomic).
 for f in "${FILES[@]}"; do
   [[ -f "$f" ]] || continue
-  cat "$f" | "${SSH[@]}" "tee /home/ultra/esphome/$f > /dev/null"
+  rsync -az --chmod=D775,F644 "$f" "$HA_SSH_USER@$HA_SSH_HOST:/home/ultra/esphome/$f"
 done
 
-# components/ — replace wholesale. Exclude macOS AppleDouble junk and caches.
-tar --exclude='._*' \
-    --exclude='.DS_Store' \
-    --exclude='__pycache__' \
-    --exclude='*.pyc' \
-    -cz components/ \
-  | "${SSH[@]}" "rm -rf /home/ultra/esphome/components 2>/dev/null; tar -C /home/ultra/esphome/ -xz"
+# components/ — sync directory, remove deleted files, preserve owner.
+# Exclude macOS AppleDouble junk and Python caches.
+rsync -az --delete \
+  --exclude='._*' \
+  --exclude='.DS_Store' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  components/ "$HA_SSH_USER@$HA_SSH_HOST:/home/ultra/esphome/components/"
 
-# Clean any legacy junk that might have survived a previous bad push.
-"${SSH[@]}" "find /home/ultra/esphome -name '._*' -delete 2>/dev/null || true"
+# Clean any legacy AppleDouble junk that might have survived a previous bad push.
+ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR "$HA_SSH_USER@$HA_SSH_HOST" \
+  "find /home/ultra/esphome -name '._*' -delete 2>/dev/null || true"
 
 echo "sync-esphome-to-ha: pushed $(echo "${FILES[@]}") + components/"
