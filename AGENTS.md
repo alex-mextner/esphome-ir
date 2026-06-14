@@ -1,10 +1,13 @@
 # Agent Instructions
 
-- Make atomic commits: each commit should contain one coherent change.
+> Portable git/commit discipline lives in the global agent-tools skills:
+> github.com/alex-mextner/agent-tools (`atomic-commits`, `pre-commit-gate`). The rules below
+> are the **esphome-ir-specific** application — read `CLAUDE.md` for project notes, and note
+> the HA-specific reason the pre-commit hook must never be bypassed.
+
 - Read `CLAUDE.md` before making repository changes and follow its project notes.
-- Review staged changes before every commit with `git diff --staged`.
-- Run `git diff --staged --check` before committing to catch whitespace and patch issues.
-- Do not stage unrelated work unless the user explicitly asks to commit the current workspace checkpoint.
+- Review staged changes before every commit (`git diff --staged`, `git diff --staged --check`
+  for whitespace/patch issues). Don't stage unrelated work unless explicitly asked.
 - **Never bypass git hooks** — do not use `git commit --no-verify` / `-n` (or
   `git push --no-verify`). The HA repo's pre-commit hook validates YAML with a
   HA-aware loader (`scripts/ha_validate_yaml.sh`, handles `!include`/`!secret`/
