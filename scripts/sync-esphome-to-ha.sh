@@ -21,7 +21,7 @@ set -a; source .env; set +a
 : "${HA_SSH_USER:?}"
 : "${HA_SSH_HOST:?}"
 
-FILES=(esp32.yaml universal_remote.yaml samsung_tv.yaml haier_ac.yaml secrets.yaml ir_remote.h)
+FILES=(esp32.yaml universal_remote.yaml samsung_tv.yaml haier_ac.yaml projector.yaml secrets.yaml ir_remote.h)
 
 SSH=(ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR "$HA_SSH_USER@$HA_SSH_HOST")
 

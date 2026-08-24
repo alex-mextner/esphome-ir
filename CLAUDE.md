@@ -15,9 +15,17 @@ Docker on the HA host; it bind-mounts `/home/ultra/esphome/` as `/config` inside
 the container. So the host directory must mirror the repo. Sync is automated via
 post-commit hook → `scripts/sync-esphome-to-ha.sh`. After ANY edit to
 `esp32.yaml`, `samsung_tv.yaml`, `haier_ac.yaml`, `universal_remote.yaml`,
-`secrets.yaml`, or `components/`, ensure a sync runs (commit triggers it;
-otherwise run the script manually). Without it, the Dashboard "Logs" / "Install"
-buttons operate on stale files.
+`projector.yaml`, `secrets.yaml`, or `components/`, ensure a sync runs (commit
+triggers it; otherwise run the script manually). Without it, the Dashboard
+"Logs" / "Install" buttons operate on stale files.
+
+**HA-side packages (`ha/packages/*.yaml`) are NOT synced by that script** —
+they go to `/home/ultra/homeassistant/packages/` and HA loads them via
+`packages: !include_dir_named packages`. Push them manually (`cat f | ssh …
+tee …`) and **diff host vs repo before overwriting** — the host copy can be
+ahead of the repo (it has been: a `vkliuchi_*` swap + a "Chromecast auto source
+sync" automation lived only on the host). A new package needs a **full HA
+restart** (`homeassistant.restart`), not a YAML reload.
 
 When the file list changes (new yaml, renamed/removed file), update the
 `FILES=(...)` array in `scripts/sync-esphome-to-ha.sh` AND remove the
@@ -72,6 +80,38 @@ made the AC respond reliably from HA **without aiming** the ESP. Note: a tight
 6-frame burst from ONE command works where 6 separate HA commands (1 frame each,
 spaced ~1.5 s) did not — the back-to-back burst is what lands. If reach ever
 degrades again, bump `kHaierResendCount` before assuming a hardware fault.
+
+## Projector — extended-NEC IR, single media device
+
+The living-room projector uses **extended NEC, address `0xBD00`** (decoded clean
+by the receiver; the `dump: all` LG line for each frame is exactly the 32-bit
+value `IRsend::sendNEC` must emit, which is how the encoding was validated). The
+12 captured commands live in `projector.yaml` as `button.projector_*` template
+buttons; each fires `send_nec(0xBD00, <cmd>)` (`ir_remote.h`). Codes: power
+`0xFE01`, play_pause `0xA05F`, source `0xFB04`, up `0xF40B`, down `0xF00F`, left
+`0xB649`, right `0xB54A`, menu `0xF50A`, back `0xAB54`, vol- `0xEF10`, mute
+`0x956A`, vol+ `0xF30C`.
+
+`send_nec(addr, cmd)` reconstructs the payload as
+`(reverseBits(addr,16)<<16) | reverseBits(cmd,16)` — ESPHome clocks each field
+LSB-first, `sendNEC` clocks MSB-first, so the payload is the bit-reverse. **One
+leader frame per press; toggle/cycle keys (power, source) must NOT auto-repeat.**
+
+**Power quirk: ONE press turns the projector ON, but OFF needs TWO presses ~3s
+apart** (single press only shows the "press again" OSD). That double-tap lives
+in HA, not firmware: `media_player.projector` (platform `universal`, in
+`ha/packages/projector.yaml`) maps `turn_off` → `script.projector_turn_off`
+(press, 3s delay, press). State is **assumed** via `input_boolean.projector_power`
+— the physical projector remote desyncs it (inherent to fire-and-forget IR).
+
+**Universal-remote routing when `input_text.tv_source == 'projector'`:** it
+behaves exactly like the `pc` source (nav / play-pause / back / menu / exit /
+info / T9 → Kodi on `media_player.192_168_0_11`) **except** power / volume± /
+mute, which divert to the projector. The source button (`input` event) now
+cycles **pc → chromecast → projector** (was a pc↔chromecast toggle). Selecting
+projector auto-powers it on (`script.source_to_projector`). The projector's own
+nav/source/play buttons stay available as direct `button.projector_*` entities
+but are NOT used by the universal-remote nav in projector mode.
 
 ## ESP32-C3 API connection slots
 
