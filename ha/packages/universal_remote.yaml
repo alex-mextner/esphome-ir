@@ -8,6 +8,13 @@ input_text:
     max: 16
     initial: "0"
     icon: mdi:gesture-double-tap
+  ac_last_mode:
+    # Last non-off hvac mode of the Haier AC. Restored when the AC is turned
+    # on from the remote (prime short-press) so it comes back in the mode you
+    # last used instead of whatever climate.turn_on would pick by default.
+    name: AC last used mode
+    max: 10
+    icon: mdi:air-conditioner
 
 input_boolean:
   nav_to_tv:
@@ -752,19 +759,19 @@ automation:
             sequence:
               - variables:
                   target_temp: >-
-                    {{ [state_attr('climate.konditsioner_haier_konditsioner',
+                    {{ [state_attr('climate.kondei_1',
                                    'temperature') | int(22) + 1, 30] | min }}
               - action: climate.set_temperature
-                target: { entity_id: climate.konditsioner_haier_konditsioner }
+                target: { entity_id: climate.kondei_1 }
                 data: { temperature: "{{ target_temp }}" }
           - conditions: "{{ button == 'channel_down' }}"
             sequence:
               - variables:
                   target_temp: >-
-                    {{ [state_attr('climate.konditsioner_haier_konditsioner',
+                    {{ [state_attr('climate.kondei_1',
                                    'temperature') | int(22) - 1, 16] | max }}
               - action: climate.set_temperature
-                target: { entity_id: climate.konditsioner_haier_konditsioner }
+                target: { entity_id: climate.kondei_1 }
                 data: { temperature: "{{ target_temp }}" }
 
           # ---- Navigation ----
@@ -992,11 +999,11 @@ automation:
             sequence:
               - variables:
                   current_mode: >-
-                    {{ states('climate.konditsioner_haier_konditsioner') }}
+                    {{ states('climate.kondei_1') }}
                   new_mode: >-
                     {{ 'heat' if current_mode == 'cool' else 'cool' }}
               - action: climate.set_hvac_mode
-                target: { entity_id: climate.konditsioner_haier_konditsioner }
+                target: { entity_id: climate.kondei_1 }
                 data: { hvac_mode: "{{ new_mode }}" }
           - conditions: "{{ ev == 'prime' }}"
             sequence:
@@ -1011,8 +1018,50 @@ automation:
                      wait.trigger.to_state.attributes.event_type == 'prime_hold' }}
                 then:
                   - stop: "hold detected, prime short suppressed"
-              - action: climate.toggle
-                target: { entity_id: climate.konditsioner_haier_konditsioner }
+              # Toggle: off → turn on in the LAST used mode (not a fixed
+              # default); on → turn off. Stored by the "Remember AC last
+              # mode" automation below.
+              - if: "{{ is_state('climate.kondei_1', 'off') }}"
+                then:
+                  - action: climate.set_hvac_mode
+                    target: { entity_id: climate.kondei_1 }
+                    data:
+                      hvac_mode: >-
+                        {% set m = states('input_text.ac_last_mode') %}
+                        {% set fallback = ['cool', 'heat', 'dry', 'fan_only', 'auto'] %}
+                        {% set valid = (state_attr('climate.kondei_1', 'hvac_modes') or fallback)
+                                       | reject('equalto', 'off') | list %}
+                        {{ m if m in valid else 'cool' }}
+                else:
+                  - action: climate.turn_off
+                    target: { entity_id: climate.kondei_1 }
+
+  # ===== Remember the AC's last non-off mode =====
+  # Whenever the Haier AC sits in any real mode, stash it so the remote's
+  # prime short-press can restore it on the next power-on.
+  - alias: Remember AC last mode
+    id: ac_remember_last_mode
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: climate.kondei_1
+        # Only actual mode transitions — a bare state trigger also fires on
+        # every attribute-only update (current_temperature, etc.), which
+        # this entity republishes often; that's needless 24/7 overhead.
+        # This is a broad filter, not the source of truth for valid modes
+        # (the restore branch above validates against the entity's own
+        # hvac_modes attribute) — matches what haier_acyrw02.cpp actually
+        # implements: off/cool/heat/fan_only/dry/auto. No heat_cool; the
+        # component doesn't support it.
+        to: ["cool", "heat", "dry", "fan_only", "auto"]
+    condition:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state.state != states('input_text.ac_last_mode') }}
+    action:
+      - action: input_text.set_value
+        target: { entity_id: input_text.ac_last_mode }
+        data: { value: "{{ trigger.to_state.state }}" }
 
   # ===== Disney: open Kodi (short) / play next episode (hold) =====
   - alias: Universal Remote Disney
