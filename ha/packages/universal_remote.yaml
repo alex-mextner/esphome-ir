@@ -992,12 +992,14 @@ automation:
     trigger:
       - platform: state
         entity_id: climate.kondei_1
+        # Only actual mode transitions — a bare state trigger also fires on
+        # every attribute-only update (current_temperature, etc.), which
+        # this entity republishes often; that's needless 24/7 overhead.
+        to: ["cool", "heat", "dry", "fan_only", "heat_cool", "auto"]
     condition:
       - condition: template
         value_template: >-
-          {{ trigger.to_state is not none and
-             trigger.to_state.state not in ['off', 'unknown', 'unavailable'] and
-             trigger.to_state.state != states('input_text.ac_last_mode') }}
+          {{ trigger.to_state.state != states('input_text.ac_last_mode') }}
     action:
       - action: input_text.set_value
         target: { entity_id: input_text.ac_last_mode }

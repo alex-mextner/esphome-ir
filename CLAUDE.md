@@ -53,7 +53,7 @@ Now: container is non-root (no root files) AND the script uses `rm ... ; tar`
 `.env` holds `HA_TOKEN` (long-lived) + `HA_URL`. Drive any entity via REST:
 `curl -H "Authorization: Bearer $HA_TOKEN" -d '{"entity_id":"...","temperature":22}' \
   $HA_URL/api/services/climate/set_temperature`. AC entity is
-`climate.konditsioner_haier_konditsioner`. There is also an HTTP MCP server in
+`climate.kondei_1`. There is also an HTTP MCP server in
 HA (`$HA_URL/api/mcp`, hass-mcp-server); `.mcp.json` (gitignored, holds the
 token) wires it into Claude Code — needs a session restart to load.
 
