@@ -7,7 +7,7 @@
 #
 # Entity ids (device "Projector"): button.projector_<name>.
 # Power is special: the projector powers ON with one press but needs TWO
-# presses ~1s apart to power OFF. That double-tap lives on the HA side
+# presses ~3s apart to power OFF. That double-tap lives on the HA side
 # (script.projector_turn_off / media_player.projector), not here — the
 # firmware only knows "send the power code once".
 
