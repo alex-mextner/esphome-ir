@@ -82,6 +82,11 @@ normal restart loses hand-edits):
 - Apply WITHOUT a graceful shutdown: `docker kill <ha-container> && docker start
   <ha-container>` (SIGKILL skips the shutdown write, so HA reads your edit on
   next boot). A plain `homeassistant.restart` would overwrite it.
+- **Caveat**: SIGKILL discards ALL un-flushed `.storage` state, not just the
+  hand-edit — any other in-memory registry/config changes made earlier in the
+  same HA session (entity renames, config entry edits, etc.) that hadn't yet
+  hit a graceful write are lost too. Only kill+start when you're confident
+  nothing else pending needs that graceful flush.
 - Verify `update.<name>_update` flips to `off` (state `on` = still pending).
 
 The same `.storage`-edit-then-kill+start pattern is the only way to hand-edit
