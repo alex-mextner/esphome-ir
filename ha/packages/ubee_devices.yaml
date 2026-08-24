@@ -6,3 +6,4 @@ sensor:
     username: admin
     password: !secret ubee_password
     model: EVW32C-0N
+    scan_interval: 60
