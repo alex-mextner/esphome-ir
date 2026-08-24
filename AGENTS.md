@@ -48,10 +48,26 @@ These submodule integrations are ALSO tracked by HACS (HACS shows them under
    fork/patch** (e.g. dataplicity's 403 fix, YandexStation's local-IP fix).
 2. **Update via git only** (per the rebase rules above): rebase the fork branch
    onto upstream / fast-forward a plain submodule, bump `manifest.json` `version`
-   if upstream did, restart HA, verify the feature works.
+   if upstream did, run `scripts/sync-submodule-to-custom-components.sh` (see
+   below), restart HA, verify the feature works.
 3. **After a git update, HACS still shows a phantom "update available"** because
    HACS keeps its own `version_installed` (set the last time it installed via
    HACS) and does NOT re-read it from the updated submodule. You must sync it.
+
+**`custom_components/<domain>` is a plain rsync copy, NOT a symlink to the
+submodule** (fixed 2026-08-24). It used to be a symlink to
+`submodules/<repo>/custom_components/<domain>` — but HACS's own zip-extract
+update path (`extractall()` in `download_repository_zip()`) writes straight
+through a symlink into whatever it points at, with no git awareness. One click
+of HACS's "Update" button, even pointed at a correct fork, would dump files
+directly into the submodule's git working tree and dirty it outside git —
+breaking the "submodule = clean git history" model this whole procedure
+depends on. So `custom_components/<domain>` for every submodule-backed
+integration is now a **plain directory**, gitignored in this repo, synced from
+the submodule via `scripts/sync-submodule-to-custom-components.sh` (no
+argument syncs all of them; pass a submodule or domain name to sync just one).
+Run it after every submodule git update and after adding a new
+submodule-backed integration, before the `.storage` sync below.
 
 **Syncing HACS so HA sees the integration as up to date** (clears the phantom):
 edit `.storage/hacs.repositories` — for the repo (match `full_name`), set
