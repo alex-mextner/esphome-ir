@@ -4,7 +4,7 @@
 # wraps the media-ish subset (power / play-pause / volume / mute) into one
 # `universal` media_player so it reads as a single device, and models the
 # power quirk: the projector turns ON with one press but needs TWO presses
-# ~1s apart to turn OFF. State is ASSUMED (fire-and-forget IR has no
+# ~3s apart to turn OFF. State is ASSUMED (fire-and-forget IR has no
 # feedback) — the physical projector remote can desync input_boolean below.
 
 input_boolean:

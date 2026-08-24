@@ -1175,6 +1175,8 @@ automation:
       - condition: template
         value_template: "{{ states('input_text.tv_source') != 'chromecast' }}"
       - condition: template
+        value_template: "{{ states('input_text.tv_source') != 'projector' }}"
+      - condition: template
         value_template: "{{ not is_state('script.vkliuchi_hromkast', 'on') }}"
       - condition: template
         value_template: "{{ not is_state('script.source_to_chromecast', 'on') }}"
