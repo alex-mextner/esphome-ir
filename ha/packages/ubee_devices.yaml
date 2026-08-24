@@ -1,9 +1,39 @@
-# Ubee router connected-devices sensor (fork: alex-mextner/ha-ubee).
-# Exposes sensor.ubee_devices with a .devices attribute (MAC+IP, heuristic names).
+# Ubee router connected-devices sensor (fork: alex-mextner/ha-ubee, vendored
+# as a submodule on the HA host — not part of this repo). Exposes
+# sensor.ubee_devices with a .devices attribute (MAC+IP, heuristic names).
+#
+# Requires host/username/password in the HA host's own secrets.yaml
+# (ubee_host, ubee_username, ubee_password) — this repo's secrets.yaml is
+# for the ESPHome device configs, a separate file.
+#
+# scan_interval is deliberately conservative: many Ubee/EVW-series routers
+# allow only one admin session, so polling too often evicts a human admin
+# login. 5 minutes is plenty for a "who's on the network" dashboard card.
 sensor:
   - platform: ubee
-    host: 192.168.0.1
-    username: admin
+    host: !secret ubee_host
+    username: !secret ubee_username
     password: !secret ubee_password
     model: EVW32C-0N
-    scan_interval: 60
+    scan_interval: 300
+
+# The .devices attribute carries the full device list (MAC+IP+name) as one
+# JSON blob, rewritten to the recorder on every poll — the same "attribute
+# blob spam" pattern that turned out to be 57.6% of this HA instance's
+# entire history DB for an unrelated sensor pair (see AGENTS.md). HA's
+# recorder.exclude has no per-attribute granularity: this drops the
+# entity's ENTIRE recorded history, including the plain device-count
+# state (no count-over-time graph) — not just the heavy attribute. That
+# trade-off is accepted here; a history graph for this sensor was never
+# in use. Live state/attributes for the dashboard card are unaffected
+# (recorder exclusion only touches what's written to the DB, not the
+# live state machine). A single package-level recorder.exclude.entities
+# entry was confirmed working on this host tonight (wakeword sensors) —
+# that proves base+one-package merges; it does NOT prove this entry
+# merges cleanly alongside that other package's exclude list too, or
+# that no base `include:` filter overrides exclude for this entity.
+# Verify with a config check on the host before assuming this landed.
+recorder:
+  exclude:
+    entities:
+      - sensor.ubee_devices
