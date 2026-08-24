@@ -14,7 +14,6 @@ input_text:
     # last used instead of whatever climate.turn_on would pick by default.
     name: AC last used mode
     max: 10
-    initial: "cool"
     icon: mdi:air-conditioner
 
 input_boolean:
@@ -978,7 +977,9 @@ automation:
                   - action: climate.set_hvac_mode
                     target: { entity_id: climate.kondei_1 }
                     data:
-                      hvac_mode: "{{ states('input_text.ac_last_mode') | default('cool', true) }}"
+                      hvac_mode: >-
+                        {% set m = states('input_text.ac_last_mode') %}
+                        {{ m if m in ['cool', 'heat', 'dry', 'fan_only', 'heat_cool', 'auto'] else 'cool' }}
                 else:
                   - action: climate.turn_off
                     target: { entity_id: climate.kondei_1 }
