@@ -979,7 +979,10 @@ automation:
                     data:
                       hvac_mode: >-
                         {% set m = states('input_text.ac_last_mode') %}
-                        {{ m if m in ['cool', 'heat', 'dry', 'fan_only', 'heat_cool', 'auto'] else 'cool' }}
+                        {% set fallback = ['cool', 'heat', 'dry', 'fan_only', 'auto'] %}
+                        {% set valid = (state_attr('climate.kondei_1', 'hvac_modes') or fallback)
+                                       | reject('equalto', 'off') | list %}
+                        {{ m if m in valid else 'cool' }}
                 else:
                   - action: climate.turn_off
                     target: { entity_id: climate.kondei_1 }
@@ -996,7 +999,12 @@ automation:
         # Only actual mode transitions — a bare state trigger also fires on
         # every attribute-only update (current_temperature, etc.), which
         # this entity republishes often; that's needless 24/7 overhead.
-        to: ["cool", "heat", "dry", "fan_only", "heat_cool", "auto"]
+        # This is a broad filter, not the source of truth for valid modes
+        # (the restore branch above validates against the entity's own
+        # hvac_modes attribute) — matches what haier_acyrw02.cpp actually
+        # implements: off/cool/heat/fan_only/dry/auto. No heat_cool; the
+        # component doesn't support it.
+        to: ["cool", "heat", "dry", "fan_only", "auto"]
     condition:
       - condition: template
         value_template: >-
